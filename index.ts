@@ -1,9 +1,14 @@
 import { handleChat } from "@services/chat_handler.ts";
 import { handleChatCompletions, handleModels, handleModelInfo } from "./routes/openai.ts";
 import { handleMessages, handleCountTokens } from "./routes/anthropic.ts";
+import { authenticate, createAuthErrorResponse, requiresAuth } from "./auth/middleware.ts";
+import { migrate } from "./db/migrate.ts";
 import type { ChatMessage } from "@defaults/types";
 
 const PORT = process.env.PORT ?? 7123;
+
+// Run migrations on startup
+await migrate();
 
 Bun.serve({
   port: PORT,
@@ -23,7 +28,23 @@ Bun.serve({
       return new Response(null, { headers: corsHeaders });
     }
 
+    // Add CORS headers helper
+    const addCorsHeaders = (response: Response): Response => {
+      for (const [key, value] of Object.entries(corsHeaders)) {
+        response.headers.set(key, value);
+      }
+      return response;
+    };
+
     try {
+      // Authentication check for protected endpoints
+      if (requiresAuth(pathname)) {
+        const authResult = await authenticate(req);
+        if (!authResult.authenticated) {
+          return addCorsHeaders(createAuthErrorResponse(authResult.error!, pathname));
+        }
+      }
+
       let response: Response;
 
       // OpenAI-compatible endpoints (Cline, Codex, etc.)
@@ -56,15 +77,10 @@ Bun.serve({
         response = new Response("Not found", { status: 404 });
       }
 
-      // Add CORS headers to response
-      for (const [key, value] of Object.entries(corsHeaders)) {
-        response.headers.set(key, value);
-      }
-
-      return response;
+      return addCorsHeaders(response);
     } catch (error) {
       console.error("Unhandled error:", error);
-      return new Response("Internal server error", { status: 500 });
+      return addCorsHeaders(new Response("Internal server error", { status: 500 }));
     }
   },
 });
@@ -109,31 +125,38 @@ async function handleLegacyChat(req: Request): Promise<Response> {
 console.log(`🚀 AICarousel running on http://localhost:${PORT}`);
 console.log(`
 Available endpoints:
-  POST /v1/chat/completions  - OpenAI compatible (Cline, Codex)
-  GET  /v1/models            - OpenAI models list
-  POST /v1/messages          - Anthropic compatible (Claude Code)
-  POST /chat                 - Legacy endpoint
-  GET  /health               - Health check
+  POST /v1/chat/completions  - OpenAI compatible (Cline, Codex) [requires API key]
+  GET  /v1/models            - OpenAI models list [public]
+  POST /v1/messages          - Anthropic compatible (Claude Code) [requires API key]
+  POST /chat                 - Legacy endpoint [requires API key]
+  GET  /health               - Health check [public]
+
+Generate an API key:
+  bun run scripts/api_key.ts create "my-key-name"
 `);
 
 /**
 EXAMPLE REQUESTS:
 
+# First, generate an API key:
+bun run scripts/api_key.ts create "test"
+
 # OpenAI format (Cline, Codex):
 curl -X POST http://localhost:7123/v1/chat/completions \\
   -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer dummy" \\
+  -H "Authorization: Bearer sk-your-api-key" \\
   -d '{"model": "aicarousel", "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
 
 # Anthropic format (Claude Code):
 curl -X POST http://localhost:7123/v1/messages \\
   -H "Content-Type: application/json" \\
-  -H "x-api-key: dummy" \\
+  -H "x-api-key: sk-your-api-key" \\
   -H "anthropic-version: 2023-06-01" \\
   -d '{"model": "aicarousel", "max_tokens": 1024, "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
 
 # Legacy format:
 curl -X POST http://localhost:7123/chat \\
   -H "Content-Type: application/json" \\
-  -d '[{"role": "user", "content": "Resolve Fibonacci with C"}]'
+  -H "Authorization: Bearer sk-your-api-key" \\
+  -d '[{"role": "user", "content": "Hello"}]'
 */

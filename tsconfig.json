@@ -32,7 +32,9 @@
       "@services/*": ["./services/*"],
       "@defaults/*": ["defaults/*"],
       "@routes/*": ["./routes/*"],
-      "@formatters/*": ["./formatters/*"]
+      "@formatters/*": ["./formatters/*"],
+      "@db/*": ["./db/*"],
+      "@auth/*": ["./auth/*"]
     }
   }
 }

@@ -10,6 +10,7 @@ const defaults = {
 export const providers = {
   cerebras: {
     name: "Cerebras",
+    apiKeyName: "CEREBRAS_API_KEY",
     params: {
       model: models.GLM46ZAI,
       max_completion_tokens: defaults.max_completion_tokens,
@@ -20,6 +21,7 @@ export const providers = {
   },
   groq: {
     name: "Groq",
+    apiKeyName: "GROQ_API_KEY",
     params: {
       model: models.KIMIK2I0905,
       max_completion_tokens: defaults.max_completion_tokens,
@@ -31,6 +33,7 @@ export const providers = {
   },
   openrouter: {
     name: "OpenRouter",
+    apiKeyName: "OPENROUTER_API_KEY",
     params: {
       model: models.QWEN3CODERFREE,
       stream: defaults.stream,
@@ -38,6 +41,7 @@ export const providers = {
   },
   gemini: {
     name: "Gemini",
+    apiKeyName: "GEMINI_API_KEY",
     params: {
       model: models.GEMINI25FLASH,
       stream: defaults.stream,
