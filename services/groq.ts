@@ -1,21 +1,17 @@
 import type { AIService, ChatMessage } from "@defaults/types";
 import { Groq } from "groq-sdk";
+import { providers } from "@defaults/providers";
 
 const client = new Groq();
 
 export const groqService: AIService = {
-  name: "Groq",
+  name: providers.groq.name,
   async *chat(messages: ChatMessage[]) {
     const stream = await client.chat.completions.create({
-      model: "moonshotai/kimi-k2-instruct-0905",
-      messages,
-      temperature: 0.6,
-      max_completion_tokens: 4096,
-      top_p: 1,
-      stream: true,
-      stop: null,
+      messages: messages as any,
+      ...providers.groq.params,
     });
-    for await (const chunk of stream) {
+    for await (const chunk of stream as any) {
       yield chunk.choices[0]?.delta?.content || "";
     }
   },
