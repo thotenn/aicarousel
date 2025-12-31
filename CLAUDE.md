@@ -13,7 +13,10 @@ bun install          # Install dependencies
 bun run dev          # Development with auto-reload (--watch)
 bun run start        # Production server
 
-# API Key Management
+# Interactive Setup CLI (recommended)
+bun run setup        # Opens interactive menu for all configuration
+
+# API Key Management (CLI alternative)
 bun run api-key create "name"   # Create new API key
 bun run api-key list            # List all API keys
 bun run api-key revoke <id>     # Revoke an API key
@@ -30,6 +33,14 @@ Server runs on port 7123 (or `PORT` env var).
 
 ```
 index.ts                     # HTTP server, main router
+├── cli/                     # Interactive setup CLI
+│   ├── index.ts             # Main menu
+│   ├── setup.ts             # Initial setup logic
+│   ├── providers.ts         # Provider API keys management
+│   ├── app_keys.ts          # Application API keys management
+│   ├── provider_toggle.ts   # Enable/disable providers
+│   ├── status.ts            # System status view
+│   └── utils/               # CLI utilities (prompt, display, env)
 ├── routes/
 │   ├── openai.ts            # /v1/chat/completions, /v1/models (Cline, Codex)
 │   └── anthropic.ts         # /v1/messages (Claude Code)
@@ -38,7 +49,7 @@ index.ts                     # HTTP server, main router
 │   └── anthropic_formatter.ts # Anthropic SSE streaming format
 ├── services/
 │   ├── chat_handler.ts      # Core chat logic with retry/fallback
-│   ├── ai_controller.ts     # StandardAIController class, services factory
+│   ├── ai_controller.ts     # Provider management, filtering, ordering
 │   ├── gemini_client.ts     # Adapter for Google Generative AI SDK
 │   └── openrouter_client.ts # Adapter for OpenRouter SDK
 ├── auth/
@@ -47,6 +58,7 @@ index.ts                     # HTTP server, main router
 │   ├── index.ts             # SQLite connection (bun:sqlite)
 │   ├── migrate.ts           # Migration runner
 │   ├── api_keys.ts          # API keys repository
+│   ├── provider_settings.ts # Provider enable/disable settings
 │   └── migrations/          # Database migrations
 ├── scripts/
 │   └── api_key.ts           # CLI for API key management
@@ -55,7 +67,7 @@ index.ts                     # HTTP server, main router
 └── defaults/
     ├── types.ts             # ChatMessage, AIService interfaces
     ├── models.ts            # Model identifiers per provider
-    └── providers.ts         # Provider configs (params, defaults)
+    └── providers.ts         # Provider configs (params, apiKeyName)
 ```
 
 ## API Endpoints
@@ -117,6 +129,18 @@ Bun automatically loads `.env` - no dotenv needed.
 - `@formatters/*` → `formatters/*`
 - `@db/*` → `db/*`
 - `@auth/*` → `auth/*`
+
+## Interactive Setup CLI
+
+Run `bun run setup` to access the interactive configuration menu:
+
+1. **Setup inicial** - Initialize database and run migrations
+2. **Gestionar API Keys de Providers** - Configure provider API keys (reads/writes to .env)
+3. **Gestionar API Keys de la Aplicación** - Create, list, revoke application API keys
+4. **Seleccionar/Deseleccionar Providers** - Enable/disable providers, change rotation order
+5. **Ver estado actual** - View system status (database, providers, API keys)
+
+Provider settings (enabled/disabled, priority order) are stored in SQLite and used by `ai_controller.ts` to filter active services.
 
 ## Client Configuration
 

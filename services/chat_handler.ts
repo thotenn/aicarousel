@@ -23,6 +23,10 @@ export interface ChatResult {
  * Returns a validated stream (first chunk already fetched) or throws if all services fail.
  */
 export async function handleChat(messages: ChatMessage[]): Promise<ChatResult> {
+  if (services.length === 0) {
+    throw new Error("No AI providers configured. Please configure at least one provider with an API key.");
+  }
+
   const MAX_RETRIES = services.length;
   let attempts = 0;
   let lastError: Error | null = null;
