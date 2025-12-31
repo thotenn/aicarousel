@@ -1,8 +1,5 @@
-import { groqService } from "@services/groq";
-import { cerebrasService } from "@services/cerebras";
-import type { AIService, ChatMessage } from "@defaults/types";
-
-const services: AIService[] = [groqService, cerebrasService];
+import { services } from "@services/ai_controller";
+import type { ChatMessage } from "@defaults/types";
 
 let currentServiceIndex = 0;
 
@@ -19,19 +16,60 @@ Bun.serve({
 
     if (req.method === "POST" && pathname === "/chat") {
       const messages = (await req.json()) as ChatMessage[];
-      const service = getNextService();
+      let service = getNextService();
 
-      console.log("Using service:", service?.name);
+      const MAX_RETRIES = services.length;
+      let attempts = 0;
 
-      const stream = service?.chat(messages);
+      while (attempts < MAX_RETRIES) {
+        if (!service) {
+          console.error("No service available");
+          break;
+        }
+        console.log("Using service:", service.name);
+        try {
+          const stream = service.chat(messages) as AsyncIterable<string>;
 
-      return new Response(stream, {
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-        },
-      });
+          let firstChunk: string | undefined;
+          let iterator: AsyncIterator<string>;
+
+          try {
+            iterator = stream[Symbol.asyncIterator]();
+            const result = await iterator.next();
+            if (!result.done) {
+              firstChunk = result.value;
+            }
+          } catch (error) {
+            console.error(`Service ${service.name} failed with error:`, error);
+            attempts++;
+            service = getNextService();
+            continue;
+          }
+
+          async function* combinedStream() {
+            if (firstChunk !== undefined) yield firstChunk;
+            while (true) {
+              const { done, value } = await iterator.next();
+              if (done) break;
+              yield value;
+            }
+          }
+
+          return new Response(combinedStream(), {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache",
+              Connection: "keep-alive",
+            },
+          });
+        } catch (e) {
+          console.error(`Unexpected error with ${service?.name}:`, e);
+          attempts++;
+          service = getNextService();
+        }
+      }
+
+      return new Response("All AI services failed", { status: 503 });
     }
     return new Response("Not found", { status: 404 });
   },

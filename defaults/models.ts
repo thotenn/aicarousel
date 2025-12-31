@@ -4,4 +4,7 @@ export const models = {
 
   // KIMI FROM MOONSHOT AI
   KIMIK2I0905: "moonshotai/kimi-k2-instruct-0905",
+
+  // QWEN
+  QWEN3CODERFREE: "qwen/qwen3-coder:free",
 };

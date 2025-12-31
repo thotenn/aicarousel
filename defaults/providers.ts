@@ -29,4 +29,11 @@ export const providers = {
       top_p: defaults.top_p,
     },
   },
+  openrouter: {
+    name: "OpenRouter",
+    params: {
+      model: models.QWEN3CODERFREE,
+      stream: defaults.stream,
+    },
+  },
 };
