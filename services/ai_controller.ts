@@ -34,16 +34,88 @@ const ClientMap: Record<string, any> = {
   gemini: GeminiClient,
 };
 
-export const services: AIService[] = Object.entries(providers).map(
-  ([key, provider]) => {
+interface ProviderSetting {
+  provider_key: string;
+  is_enabled: number;
+  priority: number;
+}
+
+/**
+ * Try to get provider settings from database.
+ * Returns null if database/table doesn't exist yet.
+ */
+function tryGetProviderSettings(): ProviderSetting[] | null {
+  try {
+    // Dynamic import to avoid circular dependencies
+    const { db } = require("../db/index.ts");
+    const stmt = db.prepare(`
+      SELECT provider_key, is_enabled, priority
+      FROM provider_settings
+      ORDER BY priority ASC
+    `);
+    return stmt.all() as ProviderSetting[];
+  } catch {
+    // Database or table doesn't exist yet
+    return null;
+  }
+}
+
+/**
+ * Check if a provider has its API key configured.
+ */
+function hasApiKey(providerKey: string): boolean {
+  const provider = providers[providerKey as keyof typeof providers];
+  if (!provider) return false;
+
+  const apiKeyName = provider.apiKeyName;
+  const value = process.env[apiKeyName];
+  return !!value && value.trim() !== "";
+}
+
+/**
+ * Build active services list based on:
+ * 1. Provider has API key configured
+ * 2. Provider is enabled in settings (or all enabled if no settings yet)
+ * 3. Sorted by priority
+ */
+function buildActiveServices(): AIService[] {
+  const settings = tryGetProviderSettings();
+
+  // Get provider entries with their settings
+  const providerEntries = Object.entries(providers)
+    .map(([key, provider]) => {
+      const setting = settings?.find((s) => s.provider_key === key);
+      return {
+        key,
+        provider,
+        hasKey: hasApiKey(key),
+        isEnabled: setting ? setting.is_enabled === 1 : true, // Default enabled if no settings
+        priority: setting?.priority ?? 999,
+      };
+    })
+    // Filter: must have API key and be enabled
+    .filter((p) => p.hasKey && p.isEnabled)
+    // Sort by priority
+    .sort((a, b) => a.priority - b.priority);
+
+  // Build services
+  return providerEntries.map(({ key, provider }) => {
     const Client = ClientMap[key];
     if (!Client) {
       throw new Error(`Client class not found for provider key: ${key}`);
     }
-    return new StandardAIController(
-      provider.name,
-      new Client(),
-      provider.params
-    );
-  }
-);
+    return new StandardAIController(provider.name, new Client(), provider.params);
+  });
+}
+
+// Build services on module load
+export let services: AIService[] = buildActiveServices();
+
+/**
+ * Refresh the services list.
+ * Call this after changing provider settings.
+ */
+export function refreshServices(): void {
+  services = buildActiveServices();
+  console.log(`Active providers: ${services.map((s) => s.name).join(", ") || "none"}`);
+}

@@ -1,106 +1,197 @@
+# CLAUDE.md
 
-Default to using Bun instead of Node.js.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Use `bunx <package> <command>` instead of `npx <package> <command>`
-- Bun automatically loads .env, so don't use dotenv.
+## Project Overview
 
-## APIs
+AICarousel is a multi-provider AI service router built with Bun. It routes chat requests to multiple AI providers (Cerebras, Groq, OpenRouter, Gemini) with automatic round-robin rotation and fallback on failure.
 
-- `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
-- `bun:sqlite` for SQLite. Don't use `better-sqlite3`.
-- `Bun.redis` for Redis. Don't use `ioredis`.
-- `Bun.sql` for Postgres. Don't use `pg` or `postgres.js`.
-- `WebSocket` is built-in. Don't use `ws`.
-- Prefer `Bun.file` over `node:fs`'s readFile/writeFile
-- Bun.$`ls` instead of execa.
+## Commands
 
-## Testing
+```bash
+bun install          # Install dependencies
+bun run dev          # Development with auto-reload (--watch)
+bun run start        # Production server
 
-Use `bun test` to run tests.
+# Interactive Setup CLI (recommended)
+bun run setup        # Opens interactive menu for all configuration
 
-```ts#index.test.ts
-import { test, expect } from "bun:test";
+# API Key Management (CLI alternative)
+bun run api-key create "name"   # Create new API key
+bun run api-key list            # List all API keys
+bun run api-key revoke <id>     # Revoke an API key
+bun run api-key delete <id>     # Delete an API key
 
-test("hello world", () => {
-  expect(1).toBe(1);
-});
+# Database
+bun run db:migrate              # Run migrations
+bun run db:rollback             # Rollback last migration
 ```
 
-## Frontend
+Server runs on port 7123 (or `PORT` env var).
 
-Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
+## Architecture
 
-Server:
-
-```ts#index.ts
-import index from "./index.html"
-
-Bun.serve({
-  routes: {
-    "/": index,
-    "/api/users/:id": {
-      GET: (req) => {
-        return new Response(JSON.stringify({ id: req.params.id }));
-      },
-    },
-  },
-  // optional websocket support
-  websocket: {
-    open: (ws) => {
-      ws.send("Hello, world!");
-    },
-    message: (ws, message) => {
-      ws.send(message);
-    },
-    close: (ws) => {
-      // handle close
-    }
-  },
-  development: {
-    hmr: true,
-    console: true,
-  }
-})
+```
+index.ts                     # HTTP server, main router
+├── cli/                     # Interactive setup CLI
+│   ├── index.ts             # Main menu
+│   ├── setup.ts             # Initial setup logic
+│   ├── providers.ts         # Provider API keys management
+│   ├── app_keys.ts          # Application API keys management
+│   ├── provider_toggle.ts   # Enable/disable providers
+│   ├── status.ts            # System status view
+│   └── utils/               # CLI utilities (prompt, display, env)
+├── routes/
+│   ├── openai.ts            # /v1/chat/completions, /v1/models (Cline, Codex)
+│   └── anthropic.ts         # /v1/messages (Claude Code)
+├── formatters/
+│   ├── openai_formatter.ts  # OpenAI SSE streaming format
+│   └── anthropic_formatter.ts # Anthropic SSE streaming format
+├── services/
+│   ├── chat_handler.ts      # Core chat logic with retry/fallback
+│   ├── ai_controller.ts     # Provider management, filtering, ordering
+│   ├── gemini_client.ts     # Adapter for Google Generative AI SDK
+│   └── openrouter_client.ts # Adapter for OpenRouter SDK
+├── auth/
+│   └── middleware.ts        # API key authentication middleware
+├── db/
+│   ├── index.ts             # SQLite connection (bun:sqlite)
+│   ├── migrate.ts           # Migration runner
+│   ├── api_keys.ts          # API keys repository
+│   ├── provider_settings.ts # Provider enable/disable settings
+│   └── migrations/          # Database migrations
+├── scripts/
+│   └── api_key.ts           # CLI for API key management
+├── data/
+│   └── aicarousel.db        # SQLite database (gitignored)
+└── defaults/
+    ├── types.ts             # ChatMessage, AIService interfaces
+    ├── models.ts            # Model identifiers per provider
+    └── providers.ts         # Provider configs (params, apiKeyName)
 ```
 
-HTML files can import .tsx, .jsx or .js files directly and Bun's bundler will transpile & bundle automatically. `<link>` tags can point to stylesheets and Bun's CSS bundler will bundle.
+## API Endpoints
 
-```html#index.html
-<html>
-  <body>
-    <h1>Hello, world!</h1>
-    <script type="module" src="./frontend.tsx"></script>
-  </body>
-</html>
-```
+| Endpoint | Method | Auth | Format | Compatible With |
+|----------|--------|------|--------|-----------------|
+| `/v1/chat/completions` | POST | Required | OpenAI | Cline, Codex, LiteLLM |
+| `/v1/models` | GET | Public | OpenAI | Cline, Codex |
+| `/v1/messages` | POST | Required | Anthropic | Claude Code |
+| `/v1/messages/count_tokens` | POST | Required | Anthropic | Claude Code |
+| `/chat` | POST | Required | Legacy | Direct use |
+| `/health` | GET | Public | JSON | Health checks |
 
-With the following `frontend.tsx`:
+**Authentication**: Include API key as `Authorization: Bearer sk-xxx` or `x-api-key: sk-xxx`
 
-```tsx#frontend.tsx
-import React from "react";
-import { createRoot } from "react-dom/client";
+### Request Flow
 
-// import .css files directly and it works
-import './index.css';
+1. Request arrives at appropriate endpoint
+2. Route handler converts to internal `ChatMessage[]` format
+3. `handleChat()` selects next provider (round-robin) with automatic retry
+4. `StandardAIController.chat()` streams response via async generator
+5. Formatter converts stream to appropriate SSE format (OpenAI or Anthropic)
+6. Returns `text/event-stream` response
 
-const root = createRoot(document.body);
+### Key Interfaces
 
-export default function Frontend() {
-  return <h1>Hello, world!</h1>;
+```typescript
+interface ChatMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
 }
 
-root.render(<Frontend />);
+interface AIService {
+  name: string;
+  chat(messages: ChatMessage[]): AsyncIterable<string>;
+}
 ```
 
-Then, run index.ts
+## Adding a New Provider
 
-```sh
-bun --hot ./index.ts
+1. Create adapter in `services/` implementing the `chat.completions.create()` pattern (see `gemini_client.ts` for non-OpenAI APIs)
+2. Add model identifier to `defaults/models.ts`
+3. Add provider config to `defaults/providers.ts`
+4. Register client in `ClientMap` in `services/ai_controller.ts`
+5. Add API key to `.env.template`
+
+## Environment Variables
+
+Copy `.env.template` to `.env` and configure:
+- `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`
+
+Bun automatically loads `.env` - no dotenv needed.
+
+## TypeScript Path Aliases
+
+- `@services/*` → `services/*`
+- `@defaults/*` → `defaults/*`
+- `@routes/*` → `routes/*`
+- `@formatters/*` → `formatters/*`
+- `@db/*` → `db/*`
+- `@auth/*` → `auth/*`
+
+## Interactive Setup CLI
+
+Run `bun run setup` to access the interactive configuration menu:
+
+1. **Setup inicial** - Initialize database and run migrations
+2. **Gestionar API Keys de Providers** - Configure provider API keys (reads/writes to .env)
+3. **Gestionar API Keys de la Aplicación** - Create, list, revoke application API keys
+4. **Seleccionar/Deseleccionar Providers** - Enable/disable providers, change rotation order
+5. **Ver estado actual** - View system status (database, providers, API keys)
+
+Provider settings (enabled/disabled, priority order) are stored in SQLite and used by `ai_controller.ts` to filter active services.
+
+## Client Configuration
+
+First, generate an API key:
+```bash
+bun run api-key create "my-client"
+# Save the returned key (sk-xxx...) - it's only shown once!
 ```
 
-For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+### Cline (VS Code)
+
+```
+API Provider: OpenAI Compatible
+Base URL: http://localhost:7123/v1
+API Key: sk-your-api-key
+Model ID: aicarousel
+```
+
+### Claude Code
+
+```bash
+export ANTHROPIC_BASE_URL=http://localhost:7123
+export ANTHROPIC_API_KEY=sk-your-api-key
+```
+
+### Codex CLI
+
+```bash
+export OPENAI_API_BASE=http://localhost:7123/v1
+export OPENAI_API_KEY=sk-your-api-key
+```
+
+## Example Requests
+
+```bash
+# OpenAI format (Cline, Codex)
+curl -X POST http://localhost:7123/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-your-api-key" \
+  -d '{"model": "aicarousel", "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
+
+# Anthropic format (Claude Code)
+curl -X POST http://localhost:7123/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk-your-api-key" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{"model": "aicarousel", "max_tokens": 1024, "messages": [{"role": "user", "content": "Hello"}], "stream": true}'
+
+# Legacy format
+curl -X POST http://localhost:7123/chat \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-your-api-key" \
+  -d '[{"role": "user", "content": "Hello"}]'
+```
