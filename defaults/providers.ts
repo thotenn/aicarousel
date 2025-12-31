@@ -36,4 +36,11 @@ export const providers = {
       stream: defaults.stream,
     },
   },
+  gemini: {
+    name: "Gemini",
+    params: {
+      model: models.GEMINI25FLASH,
+      stream: defaults.stream,
+    },
+  },
 };

@@ -3,6 +3,7 @@ import { providers } from "@defaults/providers";
 import { Cerebras } from "@cerebras/cerebras_cloud_sdk";
 import { Groq } from "groq-sdk";
 import { OpenRouterClient } from "./openrouter_client";
+import { GeminiClient } from "./gemini_client";
 
 export class StandardAIController implements AIService {
   name: string;
@@ -30,6 +31,7 @@ const ClientMap: Record<string, any> = {
   cerebras: Cerebras,
   groq: Groq,
   openrouter: OpenRouterClient,
+  gemini: GeminiClient,
 };
 
 export const services: AIService[] = Object.entries(providers).map(

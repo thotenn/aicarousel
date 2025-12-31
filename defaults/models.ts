@@ -7,4 +7,7 @@ export const models = {
 
   // QWEN
   QWEN3CODERFREE: "qwen/qwen3-coder:free",
+
+  // GEMINI
+  GEMINI25FLASH: "gemini-2.5-flash",
 };
