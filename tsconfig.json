@@ -30,7 +30,9 @@
     "baseUrl": ".",
     "paths": {
       "@services/*": ["./services/*"],
-      "@defaults/*": ["defaults/*"]
+      "@defaults/*": ["defaults/*"],
+      "@routes/*": ["./routes/*"],
+      "@formatters/*": ["./formatters/*"]
     }
   }
 }
