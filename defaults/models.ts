@@ -10,4 +10,5 @@ export const models = {
 
   // GEMINI
   GEMINI25FLASH: "gemini-2.5-flash",
+  GEMINI3FLASH: "gemini-3-flash",
 };
