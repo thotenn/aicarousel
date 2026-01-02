@@ -113,6 +113,78 @@ interface AIService {
 3. Add provider config to `defaults/providers.ts`
 4. Register client in `ClientMap` in `services/ai_controller.ts`
 5. Add API key to `.env.template`
+6. **Create corresponding tests** in `tests/services/`
+
+## Testing
+
+**IMPORTANT: Every new controller, function, route, or module MUST have corresponding tests.**
+
+```bash
+bun test              # Run all tests
+bun test:watch        # Watch mode (re-run on file changes)
+bun test:coverage     # Run with coverage report
+```
+
+### Test Structure
+
+```
+tests/
+├── utils/
+│   └── mocks.ts                    # Mock services, helpers, test utilities
+├── services/
+│   └── chat_handler.test.ts        # Service logic tests
+├── auth/
+│   └── middleware.test.ts          # Authentication tests
+├── formatters/
+│   ├── openai_formatter.test.ts    # OpenAI SSE format tests
+│   └── anthropic_formatter.test.ts # Anthropic event format tests
+├── routes/
+│   ├── openai.test.ts              # OpenAI route tests
+│   └── anthropic.test.ts           # Anthropic route tests
+└── db/
+    ├── api_keys.test.ts            # API keys CRUD tests
+    └── provider_settings.test.ts   # Provider settings tests
+```
+
+### Writing Tests
+
+Use Bun's built-in test runner:
+
+```typescript
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+
+describe("MyModule", () => {
+  beforeEach(() => {
+    // Setup
+  });
+
+  test("should do something", () => {
+    expect(result).toBe(expected);
+  });
+});
+```
+
+### Test Requirements
+
+When adding new code, create tests that cover:
+- **Happy path**: Normal expected behavior
+- **Edge cases**: Empty inputs, null values, boundaries
+- **Error handling**: Invalid inputs, failures, exceptions
+- **Integration**: How components work together
+
+### Using Mocks
+
+Import from `tests/utils/mocks.ts`:
+
+```typescript
+import {
+  createMockService,
+  createFailingService,
+  sampleMessages,
+  collectStream,
+  createMockRequest
+} from "../utils/mocks";
+```
 
 ## Environment Variables
 

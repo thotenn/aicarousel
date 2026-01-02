@@ -11,7 +11,10 @@
     "db:rollback": "bun run db/migrate.ts rollback",
     "api-key": "bun run scripts/api_key.ts",
     "api-key:create": "bun run scripts/api_key.ts create",
-    "api-key:list": "bun run scripts/api_key.ts list"
+    "api-key:list": "bun run scripts/api_key.ts list",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "test:coverage": "bun test --coverage"
   },
   "devDependencies": {
     "@types/bun": "latest"
