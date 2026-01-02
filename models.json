@@ -2,7 +2,7 @@
   "cerebras": {
     "default": "zai-glm-4.6",
     "enableFallback": true,
-    "models": ["zai-glm-4.6"]
+    "models": ["zai-glm-4.6", "qwen-3-235b-a22b-instruct-2507"]
   },
   "groq": {
     "default": "moonshotai/kimi-k2-instruct-0905",
@@ -12,7 +12,12 @@
   "openrouter": {
     "default": "qwen/qwen3-coder:free",
     "enableFallback": true,
-    "models": ["qwen/qwen3-coder:free", "meta-llama/llama-3.1-8b-instruct:free"]
+    "models": [
+      "qwen/qwen3-coder:free",
+      "moonshotai/kimi-k2:free",
+      "openai/gpt-oss-120b:free",
+      "meta-llama/llama-3.1-8b-instruct:free"
+    ]
   },
   "gemini": {
     "default": "gemini-2.5-flash",
