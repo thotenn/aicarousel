@@ -39,6 +39,7 @@ index.ts                     # HTTP server, main router
 │   ├── providers.ts         # Provider API keys management
 │   ├── app_keys.ts          # Application API keys management
 │   ├── provider_toggle.ts   # Enable/disable providers
+│   ├── models.ts            # Provider models management (CRUD, fallback, reorder)
 │   ├── status.ts            # System status view
 │   └── utils/               # CLI utilities (prompt, display, env)
 ├── routes/
@@ -50,6 +51,7 @@ index.ts                     # HTTP server, main router
 ├── services/
 │   ├── chat_handler.ts      # Core chat logic with retry/fallback
 │   ├── ai_controller.ts     # Provider management, filtering, ordering
+│   ├── models_config.ts     # Models JSON config CRUD operations
 │   ├── gemini_client.ts     # Adapter for Google Generative AI SDK
 │   └── openrouter_client.ts # Adapter for OpenRouter SDK
 ├── auth/
@@ -64,10 +66,11 @@ index.ts                     # HTTP server, main router
 │   └── api_key.ts           # CLI for API key management
 ├── data/
 │   └── aicarousel.db        # SQLite database (gitignored)
-└── defaults/
-    ├── types.ts             # ChatMessage, AIService interfaces
-    ├── models.ts            # Model identifiers per provider
-    └── providers.ts         # Provider configs (params, apiKeyName)
+├── defaults/
+│   ├── types.ts             # ChatMessage, AIService, AIServiceWithModel interfaces
+│   ├── models.ts            # Legacy model exports (use models.json instead)
+│   └── providers.ts         # Provider configs (params, apiKeyName)
+└── models.json              # Model configuration per provider (default, fallback, models list)
 ```
 
 ## API Endpoints
@@ -104,12 +107,85 @@ interface AIService {
   name: string;
   chat(messages: ChatMessage[]): AsyncIterable<string>;
 }
+
+interface AIServiceWithModel extends AIService {
+  providerKey: string;
+  model: string;
+}
+
+interface ActiveProvider {
+  key: string;
+  name: string;
+  models: string[];
+  defaultModel: string;
+  enableFallback: boolean;
+  priority: number;
+}
+```
+
+## Models Configuration
+
+Models are configured in `models.json` at the project root. Each provider has:
+- **default**: The primary model to use
+- **enableFallback**: If `true`, tries other models when default fails before moving to next provider
+- **models**: Array of available models (order determines fallback priority)
+
+### models.json Format
+
+```json
+{
+  "cerebras": {
+    "default": "qwen-3-32b",
+    "enableFallback": true,
+    "models": ["qwen-3-32b", "llama-3.3-70b"]
+  },
+  "groq": {
+    "default": "llama-3.3-70b-versatile",
+    "enableFallback": true,
+    "models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+  }
+}
+```
+
+### Fallback Behavior
+
+1. **Intra-provider fallback** (`enableFallback: true`): When a model fails, tries other models in the same provider before moving to the next provider
+2. **Cross-provider fallback**: After exhausting all models in a provider (or if `enableFallback: false`), moves to the next provider in round-robin order
+3. **All fail**: Throws error only after all providers and their models have been exhausted
+
+### Managing Models via CLI
+
+Run `bun run setup` and select option 5 "Gestionar Modelos de Providers":
+
+- **View models**: See all models for a provider with default marked
+- **Add model**: Add a new model to a provider
+- **Edit model**: Rename an existing model
+- **Delete model**: Remove a model (cannot delete the default)
+- **Set default**: Change the default model
+- **Toggle fallback**: Enable/disable intra-provider fallback
+- **Reorder models**: Change fallback priority order
+
+### Programmatic Access
+
+```typescript
+import {
+  getModelsConfig,
+  saveModelsConfig,
+  getProviderModels,
+  getDefaultModel,
+  isProviderFallbackEnabled,
+  addModel,
+  removeModel,
+  setDefaultModel,
+  toggleFallback,
+  reorderModels
+} from "./services/models_config";
 ```
 
 ## Adding a New Provider
 
 1. Create adapter in `services/` implementing the `chat.completions.create()` pattern (see `gemini_client.ts` for non-OpenAI APIs)
-2. Add model identifier to `defaults/models.ts`
+2. Add provider entry to `models.json` with default model, enableFallback, and models array
 3. Add provider config to `defaults/providers.ts`
 4. Register client in `ClientMap` in `services/ai_controller.ts`
 5. Add API key to `.env.template`
@@ -132,7 +208,9 @@ tests/
 ├── utils/
 │   └── mocks.ts                    # Mock services, helpers, test utilities
 ├── services/
-│   └── chat_handler.test.ts        # Service logic tests
+│   ├── chat_handler.test.ts        # Chat logic, fallback behavior tests
+│   ├── ai_controller.test.ts       # Provider filtering, service creation tests
+│   └── models_config.test.ts       # Models JSON validation, CRUD tests
 ├── auth/
 │   └── middleware.test.ts          # Authentication tests
 ├── formatters/
@@ -178,11 +256,20 @@ Import from `tests/utils/mocks.ts`:
 
 ```typescript
 import {
+  // Basic service mocks
   createMockService,
   createFailingService,
+  createEmptyService,
   sampleMessages,
   collectStream,
-  createMockRequest
+  createMockRequest,
+  // Model-aware service mocks
+  createMockServiceWithModel,
+  createFailingServiceWithModel,
+  createActiveProvider,
+  createProviderModelConfig,
+  sampleModelsConfig,
+  sampleActiveProviders
 } from "../utils/mocks";
 ```
 
@@ -210,9 +297,11 @@ Run `bun run setup` to access the interactive configuration menu:
 2. **Gestionar API Keys de Providers** - Configure provider API keys (reads/writes to .env)
 3. **Gestionar API Keys de la Aplicación** - Create, list, revoke application API keys
 4. **Seleccionar/Deseleccionar Providers** - Enable/disable providers, change rotation order
-5. **Ver estado actual** - View system status (database, providers, API keys)
+5. **Gestionar Modelos de Providers** - Add/edit/delete models, set defaults, toggle fallback, reorder
+6. **Ver estado actual** - View system status (database, providers, API keys)
 
 Provider settings (enabled/disabled, priority order) are stored in SQLite and used by `ai_controller.ts` to filter active services.
+Model settings are stored in `models.json` and used by `chat_handler.ts` for fallback logic.
 
 ## Client Configuration
 

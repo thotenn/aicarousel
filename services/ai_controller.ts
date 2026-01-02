@@ -1,19 +1,28 @@
-import type { AIService, ChatMessage } from "@defaults/types";
-import { providers } from "@defaults/providers";
+import type { AIService, AIServiceWithModel, ActiveProvider, ChatMessage } from "@defaults/types";
+import { providers, getProviderParams, type ProviderKey } from "@defaults/providers";
+import {
+  getProviderModels,
+  getDefaultModel,
+  isProviderFallbackEnabled,
+} from "./models_config";
 import { Cerebras } from "@cerebras/cerebras_cloud_sdk";
 import { Groq } from "groq-sdk";
 import { OpenRouterClient } from "./openrouter_client";
 import { GeminiClient } from "./gemini_client";
 
-export class StandardAIController implements AIService {
+export class StandardAIController implements AIServiceWithModel {
   name: string;
+  providerKey: string;
+  model: string;
   private client: any;
   private params: any;
 
-  constructor(name: string, client: any, params: any) {
+  constructor(name: string, providerKey: string, client: any, params: any) {
     this.name = name;
+    this.providerKey = providerKey;
     this.client = client;
     this.params = params;
+    this.model = params.model;
   }
 
   async *chat(messages: ChatMessage[]) {
@@ -86,7 +95,7 @@ function buildActiveServices(): AIService[] {
     .map(([key, provider]) => {
       const setting = settings?.find((s) => s.provider_key === key);
       return {
-        key,
+        key: key as ProviderKey,
         provider,
         hasKey: hasApiKey(key),
         isEnabled: setting ? setting.is_enabled === 1 : true, // Default enabled if no settings
@@ -104,7 +113,9 @@ function buildActiveServices(): AIService[] {
     if (!Client) {
       throw new Error(`Client class not found for provider key: ${key}`);
     }
-    return new StandardAIController(provider.name, new Client(), provider.params);
+    // Get params dynamically with the default model from models.json
+    const params = getProviderParams(key);
+    return new StandardAIController(provider.name, key, new Client(), params);
   });
 }
 
@@ -114,4 +125,56 @@ function buildActiveServices(): AIService[] {
  */
 export function getActiveServices(): AIService[] {
   return buildActiveServices();
+}
+
+/**
+ * Create a service for a specific provider with a specific model.
+ * Used for fallback logic.
+ */
+export function createServiceWithModel(providerKey: ProviderKey, model: string): AIServiceWithModel {
+  const provider = providers[providerKey];
+  const Client = ClientMap[providerKey];
+
+  if (!Client) {
+    throw new Error(`Client class not found for provider key: ${providerKey}`);
+  }
+
+  const params = getProviderParams(providerKey, model);
+  return new StandardAIController(provider.name, providerKey, new Client(), params);
+}
+
+/**
+ * Get active providers with their full configuration.
+ * Includes models list, default model, and fallback settings.
+ */
+export function getActiveProviders(): ActiveProvider[] {
+  const settings = tryGetProviderSettings();
+
+  return Object.entries(providers)
+    .map(([key, provider]) => {
+      const setting = settings?.find((s) => s.provider_key === key);
+      const models = getProviderModels(key);
+      const defaultModel = getDefaultModel(key);
+
+      return {
+        key,
+        name: provider.name,
+        models,
+        defaultModel: defaultModel ?? models[0] ?? "",
+        enableFallback: isProviderFallbackEnabled(key),
+        priority: setting?.priority ?? 999,
+        hasKey: hasApiKey(key),
+        isEnabled: setting ? setting.is_enabled === 1 : true,
+      };
+    })
+    .filter((p) => p.hasKey && p.isEnabled && p.models.length > 0)
+    .sort((a, b) => a.priority - b.priority)
+    .map(({ key, name, models, defaultModel, enableFallback, priority }) => ({
+      key,
+      name,
+      models,
+      defaultModel,
+      enableFallback,
+      priority,
+    }));
 }

@@ -1,0 +1,22 @@
+{
+  "cerebras": {
+    "default": "zai-glm-4.6",
+    "enableFallback": true,
+    "models": ["zai-glm-4.6"]
+  },
+  "groq": {
+    "default": "moonshotai/kimi-k2-instruct-0905",
+    "enableFallback": true,
+    "models": ["moonshotai/kimi-k2-instruct-0905", "llama-3.3-70b-versatile"]
+  },
+  "openrouter": {
+    "default": "qwen/qwen3-coder:free",
+    "enableFallback": true,
+    "models": ["qwen/qwen3-coder:free", "meta-llama/llama-3.1-8b-instruct:free"]
+  },
+  "gemini": {
+    "default": "gemini-2.5-flash",
+    "enableFallback": true,
+    "models": ["gemini-2.5-flash", "gemini-2.0-flash-exp"]
+  }
+}

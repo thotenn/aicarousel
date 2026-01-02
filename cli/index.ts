@@ -11,6 +11,7 @@ import { runSetup } from "./setup.ts";
 import { manageProviderKeys } from "./providers.ts";
 import { manageAppKeys } from "./app_keys.ts";
 import { manageProviderToggle } from "./provider_toggle.ts";
+import { manageModels } from "./models.ts";
 import { showStatus } from "./status.ts";
 
 async function mainMenu(): Promise<void> {
@@ -22,7 +23,8 @@ async function mainMenu(): Promise<void> {
     console.log("  2. 🔑 Gestionar API Keys de Providers");
     console.log("  3. 🎫 Gestionar API Keys de la Aplicación");
     console.log("  4. ⚡ Seleccionar/Deseleccionar Providers");
-    console.log("  5. 📊 Ver estado actual");
+    console.log("  5. 🎯 Gestionar Modelos de Providers");
+    console.log("  6. 📊 Ver estado actual");
     console.log("  0. ❌ Salir");
     console.log();
 
@@ -42,6 +44,9 @@ async function mainMenu(): Promise<void> {
         await manageProviderToggle();
         break;
       case "5":
+        await manageModels();
+        break;
+      case "6":
         await showStatus();
         break;
       case "0":

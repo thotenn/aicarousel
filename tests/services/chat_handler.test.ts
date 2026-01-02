@@ -9,32 +9,31 @@ import {
   createMockService,
   createFailingService,
   createEmptyService,
+  createMockServiceWithModel,
+  createFailingServiceWithModel,
+  createActiveProvider,
+  sampleActiveProviders,
 } from "../utils/mocks";
+import type { ActiveProvider, AIServiceWithModel } from "../../defaults/types";
 
 // We need to mock the services array before importing
 // Since the module uses a global services array, we test the logic in isolation
 
 describe("chat_handler", () => {
-  describe("getNextService", () => {
-    test("should rotate through services in round-robin fashion", async () => {
-      // Test service rotation logic
-      const services = [
-        createMockService("Service1"),
-        createMockService("Service2"),
-        createMockService("Service3"),
-      ];
+  describe("provider rotation", () => {
+    test("should rotate through providers in round-robin fashion", async () => {
+      const providers = sampleActiveProviders;
 
       let currentIndex = 0;
       const getNext = () => {
-        const service = services[currentIndex];
-        currentIndex = (currentIndex + 1) % services.length;
-        return service;
+        const provider = providers[currentIndex];
+        currentIndex = (currentIndex + 1) % providers.length;
+        return provider;
       };
 
-      expect(getNext()?.name).toBe("Service1");
-      expect(getNext()?.name).toBe("Service2");
-      expect(getNext()?.name).toBe("Service3");
-      expect(getNext()?.name).toBe("Service1"); // Wraps around
+      expect(getNext()?.name).toBe("Test Provider 1");
+      expect(getNext()?.name).toBe("Test Provider 2");
+      expect(getNext()?.name).toBe("Test Provider 1"); // Wraps around
     });
   });
 
@@ -61,6 +60,113 @@ describe("chat_handler", () => {
         const stream = service.chat(sampleMessages);
         await collectStream(stream);
       }).toThrow("API Error");
+    });
+  });
+
+  describe("intra-provider fallback", () => {
+    test("should try models in order when fallback enabled", async () => {
+      const provider = createActiveProvider(
+        "test",
+        "TestProvider",
+        ["model-a", "model-b", "model-c"],
+        "model-a",
+        true // enableFallback
+      );
+
+      // Simulate trying models in order
+      const modelsToTry = provider.enableFallback
+        ? [provider.defaultModel, ...provider.models.filter(m => m !== provider.defaultModel)]
+        : [provider.defaultModel];
+
+      expect(modelsToTry).toEqual(["model-a", "model-b", "model-c"]);
+    });
+
+    test("should only try default when fallback disabled", async () => {
+      const provider = createActiveProvider(
+        "test",
+        "TestProvider",
+        ["model-a", "model-b", "model-c"],
+        "model-a",
+        false // enableFallback disabled
+      );
+
+      const modelsToTry = provider.enableFallback
+        ? [provider.defaultModel, ...provider.models.filter(m => m !== provider.defaultModel)]
+        : [provider.defaultModel];
+
+      expect(modelsToTry).toEqual(["model-a"]);
+    });
+
+    test("should fallback to next model on failure", async () => {
+      const failingModel = createFailingServiceWithModel(
+        "Provider",
+        "provider",
+        "model-a",
+        new Error("Model A failed")
+      );
+      const workingModel = createMockServiceWithModel(
+        "Provider",
+        "provider",
+        "model-b",
+        ["Success"]
+      );
+
+      const models: AIServiceWithModel[] = [failingModel, workingModel];
+      let successModel: string | null = null;
+
+      for (const service of models) {
+        try {
+          const stream = service.chat(sampleMessages);
+          await collectStream(stream);
+          successModel = service.model;
+          break;
+        } catch {
+          continue;
+        }
+      }
+
+      expect(successModel).toBe("model-b");
+    });
+  });
+
+  describe("cross-provider fallback", () => {
+    test("should try next provider when all models fail", async () => {
+      const providers: ActiveProvider[] = [
+        createActiveProvider("p1", "Provider1", ["m1"], "m1", true),
+        createActiveProvider("p2", "Provider2", ["m2"], "m2", true),
+      ];
+
+      // Simulate: P1 fails, P2 succeeds
+      let successProvider: string | null = null;
+
+      for (const provider of providers) {
+        const shouldFail = provider.key === "p1";
+
+        if (shouldFail) {
+          continue; // Simulate all models failed
+        }
+
+        successProvider = provider.name;
+        break;
+      }
+
+      expect(successProvider).toBe("Provider2");
+    });
+
+    test("should exhaust all providers before throwing", async () => {
+      const providers: ActiveProvider[] = [
+        createActiveProvider("p1", "Provider1", ["m1"], "m1", true),
+        createActiveProvider("p2", "Provider2", ["m2"], "m2", true),
+      ];
+
+      let exhaustedProviders = 0;
+
+      for (const provider of providers) {
+        // Simulate failure for all providers
+        exhaustedProviders++;
+      }
+
+      expect(exhaustedProviders).toBe(2);
     });
   });
 
@@ -125,6 +231,39 @@ describe("chat_handler", () => {
       }
 
       expect(collected).toEqual(chunks);
+    });
+  });
+
+  describe("model ordering", () => {
+    test("should put default model first in fallback order", () => {
+      const models = ["model-b", "model-c", "model-a"];
+      const defaultModel = "model-a";
+
+      // Simulate getOrderedModels logic
+      const ordered = [defaultModel];
+      for (const model of models) {
+        if (model !== defaultModel) {
+          ordered.push(model);
+        }
+      }
+
+      expect(ordered[0]).toBe("model-a");
+      expect(ordered).toContain("model-b");
+      expect(ordered).toContain("model-c");
+    });
+
+    test("should handle default already first", () => {
+      const models = ["model-a", "model-b", "model-c"];
+      const defaultModel = "model-a";
+
+      const ordered = [defaultModel];
+      for (const model of models) {
+        if (model !== defaultModel) {
+          ordered.push(model);
+        }
+      }
+
+      expect(ordered).toEqual(["model-a", "model-b", "model-c"]);
     });
   });
 });

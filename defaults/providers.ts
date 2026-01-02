@@ -1,4 +1,11 @@
-import { models } from "./models";
+/**
+ * Provider configurations.
+ *
+ * Models are now loaded dynamically from models.json.
+ * Use getProviderParams() to get params with the current default model.
+ */
+
+import { getDefaultModel } from "./models";
 
 const defaults = {
   max_completion_tokens: 4096,
@@ -7,44 +14,78 @@ const defaults = {
   top_p: 1,
 };
 
-export const providers = {
+/**
+ * Base provider params without model (model is added dynamically).
+ */
+const providerBaseParams = {
+  cerebras: {
+    max_completion_tokens: defaults.max_completion_tokens,
+    stream: defaults.stream,
+    temperature: defaults.temperature,
+    top_p: defaults.top_p,
+  },
+  groq: {
+    max_completion_tokens: defaults.max_completion_tokens,
+    stream: defaults.stream,
+    stop: null,
+    temperature: defaults.temperature,
+    top_p: defaults.top_p,
+  },
+  openrouter: {
+    stream: defaults.stream,
+  },
+  gemini: {
+    stream: defaults.stream,
+  },
+} as const;
+
+export type ProviderKey = keyof typeof providerBaseParams;
+
+/**
+ * Provider definitions.
+ */
+export const providers: Record<ProviderKey, {
+  name: string;
+  apiKeyName: string;
+}> = {
   cerebras: {
     name: "Cerebras",
     apiKeyName: "CEREBRAS_API_KEY",
-    params: {
-      model: models.GLM46ZAI,
-      max_completion_tokens: defaults.max_completion_tokens,
-      stream: defaults.stream,
-      temperature: defaults.temperature,
-      top_p: defaults.top_p,
-    },
   },
   groq: {
     name: "Groq",
     apiKeyName: "GROQ_API_KEY",
-    params: {
-      model: models.KIMIK2I0905,
-      max_completion_tokens: defaults.max_completion_tokens,
-      stream: defaults.stream,
-      stop: null,
-      temperature: defaults.temperature,
-      top_p: defaults.top_p,
-    },
   },
   openrouter: {
     name: "OpenRouter",
     apiKeyName: "OPENROUTER_API_KEY",
-    params: {
-      model: models.QWEN3CODERFREE,
-      stream: defaults.stream,
-    },
   },
   gemini: {
     name: "Gemini",
     apiKeyName: "GEMINI_API_KEY",
-    params: {
-      model: models.GEMINI25FLASH,
-      stream: defaults.stream,
-    },
   },
 };
+
+/**
+ * Get provider params with the specified model (or default model from config).
+ */
+export function getProviderParams(providerKey: ProviderKey, model?: string): Record<string, any> {
+  const baseParams = providerBaseParams[providerKey];
+  const modelToUse = model ?? getDefaultModel(providerKey);
+
+  if (!modelToUse) {
+    throw new Error(`No model configured for provider: ${providerKey}`);
+  }
+
+  return {
+    model: modelToUse,
+    ...baseParams,
+  };
+}
+
+/**
+ * Get all provider keys.
+ */
+export function getProviderKeys(): ProviderKey[] {
+  return Object.keys(providers) as ProviderKey[];
+}

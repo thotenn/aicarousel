@@ -6,6 +6,8 @@ Multi-provider AI service router with automatic round-robin rotation and fallbac
 
 - **Multi-Provider Support**: Cerebras, Groq, OpenRouter, Gemini
 - **Automatic Failover**: Round-robin rotation with automatic retry on failure
+- **Intra-Provider Fallback**: Try multiple models within a provider before switching
+- **Configurable Models**: JSON-based model configuration with per-provider settings
 - **API Compatibility**: OpenAI and Anthropic API formats supported
 - **Authentication**: SQLite-based API key management
 - **Interactive CLI**: Unified setup and configuration interface
@@ -44,7 +46,8 @@ The CLI provides:
 2. **Providers API Keys** - Configure provider API keys (Cerebras, Groq, OpenRouter, Gemini)
 3. **Applications API Keys** - Create/manage application API keys for authentication
 4. **Active Providers** - Enable/disable providers and set rotation order
-5. **System State** - View current configuration status
+5. **Models Management** - Add/edit/delete models, set defaults, toggle fallback, reorder
+6. **System State** - View current configuration status
 
 ### 3. Start the Server
 
@@ -160,6 +163,33 @@ bun run api-key delete <id>     # Delete an API key
 bun run db:migrate       # Run migrations
 bun run db:rollback      # Rollback last migration
 ```
+
+## Models Configuration
+
+Models are configured in `models.json` at the project root:
+
+```json
+{
+  "cerebras": {
+    "default": "qwen-3-32b",
+    "enableFallback": true,
+    "models": ["qwen-3-32b", "llama-3.3-70b"]
+  },
+  "groq": {
+    "default": "llama-3.3-70b-versatile",
+    "enableFallback": true,
+    "models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+  }
+}
+```
+
+### Fallback Behavior
+
+- **`enableFallback: true`**: When a model fails, tries other models in the same provider before moving to next provider
+- **`enableFallback: false`**: Only tries the default model, then moves to next provider
+- **Model order**: First model in the array is tried first (after default), determines fallback priority
+
+Manage models via CLI: `bun run setup` → option 5
 
 ## Environment Variables
 
