@@ -1,16 +1,22 @@
-import { services } from "./ai_controller.ts";
+import { getActiveServices } from "./ai_controller.ts";
 import type { ChatMessage, AIService } from "@defaults/types";
 
 let currentServiceIndex = 0;
 
 export function getNextService(): AIService {
+  const services = getActiveServices();
+  if (services.length === 0) {
+    throw new Error("No AI providers configured");
+  }
+  // Ensure index is within bounds after config changes
+  currentServiceIndex = currentServiceIndex % services.length;
   const service = services[currentServiceIndex];
   currentServiceIndex = (currentServiceIndex + 1) % services.length;
   return service!;
 }
 
 export function getServicesCount(): number {
-  return services.length;
+  return getActiveServices().length;
 }
 
 export interface ChatResult {
@@ -23,6 +29,8 @@ export interface ChatResult {
  * Returns a validated stream (first chunk already fetched) or throws if all services fail.
  */
 export async function handleChat(messages: ChatMessage[]): Promise<ChatResult> {
+  const services = getActiveServices();
+
   if (services.length === 0) {
     throw new Error("No AI providers configured. Please configure at least one provider with an API key.");
   }

@@ -108,14 +108,10 @@ function buildActiveServices(): AIService[] {
   });
 }
 
-// Build services on module load
-export let services: AIService[] = buildActiveServices();
-
 /**
- * Refresh the services list.
- * Call this after changing provider settings.
+ * Get current active services.
+ * Builds the list dynamically to always reflect current database settings.
  */
-export function refreshServices(): void {
-  services = buildActiveServices();
-  console.log(`Active providers: ${services.map((s) => s.name).join(", ") || "none"}`);
+export function getActiveServices(): AIService[] {
+  return buildActiveServices();
 }
