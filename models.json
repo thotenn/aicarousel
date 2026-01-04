@@ -7,7 +7,7 @@
   "groq": {
     "default": "moonshotai/kimi-k2-instruct-0905",
     "enableFallback": true,
-    "models": ["moonshotai/kimi-k2-instruct-0905", "llama-3.3-70b-versatile"]
+    "models": ["moonshotai/kimi-k2-instruct-0905", "llama-3.1-8b-instant"]
   },
   "openrouter": {
     "default": "qwen/qwen3-coder:free",
@@ -15,14 +15,14 @@
     "models": [
       "qwen/qwen3-coder:free",
       "moonshotai/kimi-k2:free",
-      "openai/gpt-oss-120b:free",
-      "meta-llama/llama-3.1-8b-instruct:free"
+      "openai/gpt-oss-20b:free",
+      "z-ai/glm-4.5-air:free"
     ]
   },
   "gemini": {
-    "default": "gemini-2.5-flash",
+    "default": "gemini-2.5-flash-lite",
     "enableFallback": true,
-    "models": ["gemini-2.5-flash", "gemini-2.0-flash-exp"]
+    "models": ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemma-3-12b"]
   },
   "ollama": {
     "default": "gemma3:1b",
