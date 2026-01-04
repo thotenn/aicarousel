@@ -9,6 +9,7 @@ import { Cerebras } from "@cerebras/cerebras_cloud_sdk";
 import { Groq } from "groq-sdk";
 import { OpenRouterClient } from "./openrouter_client";
 import { GeminiClient } from "./gemini_client";
+import { OllamaClient } from "./ollama_client";
 
 export class StandardAIController implements AIServiceWithModel {
   name: string;
@@ -41,6 +42,7 @@ const ClientMap: Record<string, any> = {
   groq: Groq,
   openrouter: OpenRouterClient,
   gemini: GeminiClient,
+  ollama: OllamaClient,
 };
 
 interface ProviderSetting {

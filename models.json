@@ -23,5 +23,10 @@
     "default": "gemini-2.5-flash",
     "enableFallback": true,
     "models": ["gemini-2.5-flash", "gemini-2.0-flash-exp"]
+  },
+  "ollama": {
+    "default": "gemma3:1b",
+    "enableFallback": true,
+    "models": ["gemma3:1b", "llama3.2:latest"]
   }
 }

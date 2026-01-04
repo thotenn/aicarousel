@@ -37,6 +37,12 @@ const providerBaseParams = {
   gemini: {
     stream: defaults.stream,
   },
+  ollama: {
+    max_completion_tokens: defaults.max_completion_tokens,
+    stream: defaults.stream,
+    temperature: defaults.temperature,
+    top_p: defaults.top_p,
+  },
 } as const;
 
 export type ProviderKey = keyof typeof providerBaseParams;
@@ -63,6 +69,10 @@ export const providers: Record<ProviderKey, {
   gemini: {
     name: "Gemini",
     apiKeyName: "GEMINI_API_KEY",
+  },
+  ollama: {
+    name: "Ollama",
+    apiKeyName: "OLLAMA_ENABLED",
   },
 };
 
