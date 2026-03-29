@@ -48,8 +48,9 @@ export function clearConfigCache(): void {
 }
 
 /**
- * Read and parse models.json synchronously.
- * Uses a short-lived cache to avoid file reads on every call.
+ * Read and parse models configuration.
+ * Priority: MODELS_CONFIG env var > models.json file.
+ * Uses a short-lived cache to avoid repeated parsing/file reads.
  */
 export function getModelsConfig(): ModelsConfig {
   const now = Date.now();
@@ -59,6 +60,24 @@ export function getModelsConfig(): ModelsConfig {
     return configCache;
   }
 
+  // Priority 1: MODELS_CONFIG env var
+  const envConfig = process.env.MODELS_CONFIG;
+  if (envConfig) {
+    try {
+      const parsed = JSON.parse(envConfig) as ModelsConfig;
+      validateModelsConfig(parsed);
+      configCache = parsed;
+      configCacheTime = now;
+      return parsed;
+    } catch (error) {
+      if (error instanceof ModelsConfigError) {
+        throw new ModelsConfigError(`MODELS_CONFIG env var: ${error.message}`);
+      }
+      throw new ModelsConfigError(`Failed to parse MODELS_CONFIG env var: ${error}`);
+    }
+  }
+
+  // Priority 2: models.json file
   try {
     // Use require for synchronous read (Bun caches this)
     // Delete from cache first to get fresh content

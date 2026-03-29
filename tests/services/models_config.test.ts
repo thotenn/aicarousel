@@ -7,6 +7,8 @@ import { join } from "path";
 import {
   validateModelsConfig,
   validateProviderConfig,
+  getModelsConfig,
+  clearConfigCache,
   ModelsConfigError,
   type ModelsConfig,
   type ProviderModelConfig,
@@ -161,6 +163,67 @@ describe("models_config", () => {
       };
 
       expect(() => validateModelsConfig(config)).not.toThrow();
+    });
+  });
+
+  describe("MODELS_CONFIG env var", () => {
+    const originalEnv = process.env.MODELS_CONFIG;
+
+    afterEach(() => {
+      if (originalEnv === undefined) {
+        delete process.env.MODELS_CONFIG;
+      } else {
+        process.env.MODELS_CONFIG = originalEnv;
+      }
+      clearConfigCache();
+    });
+
+    test("should use MODELS_CONFIG env var when set", () => {
+      const envConfig: ModelsConfig = {
+        testprovider: {
+          default: "env-model",
+          enableFallback: false,
+          models: ["env-model"],
+        },
+      };
+      process.env.MODELS_CONFIG = JSON.stringify(envConfig);
+      clearConfigCache();
+
+      const result = getModelsConfig();
+      expect(result.testprovider).toBeDefined();
+      expect(result.testprovider.default).toBe("env-model");
+    });
+
+    test("should fall back to models.json when env var is not set", () => {
+      delete process.env.MODELS_CONFIG;
+      clearConfigCache();
+
+      const result = getModelsConfig();
+      // models.json should have real providers
+      expect(Object.keys(result).length).toBeGreaterThan(0);
+    });
+
+    test("should throw on invalid JSON in env var", () => {
+      process.env.MODELS_CONFIG = "not valid json";
+      clearConfigCache();
+
+      expect(() => getModelsConfig()).toThrow("MODELS_CONFIG env var");
+    });
+
+    test("should throw on valid JSON but invalid config in env var", () => {
+      process.env.MODELS_CONFIG = JSON.stringify({});
+      clearConfigCache();
+
+      expect(() => getModelsConfig()).toThrow("MODELS_CONFIG env var");
+    });
+
+    test("should validate provider structure from env var", () => {
+      process.env.MODELS_CONFIG = JSON.stringify({
+        bad: { default: "", enableFallback: true, models: ["m"] },
+      });
+      clearConfigCache();
+
+      expect(() => getModelsConfig()).toThrow("MODELS_CONFIG env var");
     });
   });
 
