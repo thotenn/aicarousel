@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AICarousel is a multi-provider AI service router built with Bun. It routes chat requests to multiple AI providers (Cerebras, Groq, OpenRouter, Gemini) with automatic round-robin rotation and fallback on failure.
+AICarousel is a multi-provider AI service router built with Bun. It routes chat requests to multiple AI providers (Cerebras, Groq, OpenRouter, Gemini, Z.ai, Ollama) with automatic round-robin rotation and fallback on failure.
 
 ## Commands
 
@@ -53,7 +53,9 @@ index.ts                     # HTTP server, main router
 │   ├── ai_controller.ts     # Provider management, filtering, ordering
 │   ├── models_config.ts     # Models JSON config CRUD operations
 │   ├── gemini_client.ts     # Adapter for Google Generative AI SDK
-│   └── openrouter_client.ts # Adapter for OpenRouter SDK
+│   ├── openrouter_client.ts # Adapter for OpenRouter SDK
+│   ├── ollama_client.ts     # Adapter for Ollama (local LLM)
+│   └── zai_client.ts        # Adapter for Z.ai (Anthropic-compatible API)
 ├── auth/
 │   └── middleware.ts        # API key authentication middleware
 ├── db/
@@ -70,7 +72,9 @@ index.ts                     # HTTP server, main router
 │   ├── types.ts             # ChatMessage, AIService, AIServiceWithModel interfaces
 │   ├── models.ts            # Legacy model exports (use models.json instead)
 │   └── providers.ts         # Provider configs (params, apiKeyName)
-└── models.json              # Model configuration per provider (default, fallback, models list)
+├── models.json              # Model configuration per provider (default, fallback, models list)
+├── Dockerfile               # Docker image definition
+└── docker-compose.yaml      # Docker Compose with persistent volume for SQLite
 ```
 
 ## API Endpoints
@@ -210,7 +214,8 @@ tests/
 ├── services/
 │   ├── chat_handler.test.ts        # Chat logic, fallback behavior tests
 │   ├── ai_controller.test.ts       # Provider filtering, service creation tests
-│   └── models_config.test.ts       # Models JSON validation, CRUD tests
+│   ├── models_config.test.ts       # Models JSON validation, CRUD tests
+│   └── zai_client.test.ts          # Z.ai client adapter tests
 ├── auth/
 │   └── middleware.test.ts          # Authentication tests
 ├── formatters/
@@ -273,10 +278,29 @@ import {
 } from "../utils/mocks";
 ```
 
+## Deployment
+
+### Docker Compose (recommended for production)
+
+```bash
+docker compose up -d
+```
+
+The `docker-compose.yaml` includes a named volume `aicarousel-data` for SQLite persistence.
+The `DB_PATH` env var controls where the database is stored (default: `/app/data/aicarousel.db` in Docker).
+
+### Models Override via Environment
+
+The `MODELS_CONFIG` env var overrides `models.json` entirely. Useful for deployments where you can only set env vars. If set, the env var takes priority over the file.
+
 ## Environment Variables
 
 Copy `.env.template` to `.env` and configure:
-- `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`
+- `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `ZAI_API_KEY`
+- `ZAI_BASE_URL` (optional, defaults to `https://api.z.ai/api/anthropic`)
+- `OLLAMA_ENABLED`, `OLLAMA_BASE_URL` (for local Ollama)
+- `DB_PATH` (optional, override SQLite database location)
+- `MODELS_CONFIG` (optional, JSON string to override `models.json`)
 
 Bun automatically loads `.env` - no dotenv needed.
 

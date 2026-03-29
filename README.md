@@ -4,7 +4,7 @@ Multi-provider AI service router with automatic round-robin rotation and fallbac
 
 ## Features
 
-- **Multi-Provider Support**: Cerebras, Groq, OpenRouter, Gemini
+- **Multi-Provider Support**: Cerebras, Groq, OpenRouter, Gemini, Z.ai, Ollama
 - **Automatic Failover**: Round-robin rotation with automatic retry on failure
 - **Intra-Provider Fallback**: Try multiple models within a provider before switching
 - **Configurable Models**: JSON-based model configuration with per-provider settings
@@ -15,51 +15,57 @@ Multi-provider AI service router with automatic round-robin rotation and fallbac
 
 ## Quick Start
 
+### Local Development
+
 ```bash
-# Install dependencies
 bun install
-
-# Run interactive setup
 bun run setup
-
-# Start server
 bun run dev
+```
+
+### Docker Compose
+
+```bash
+cp .env.template .env
+# Edit .env with your API keys
+docker compose up -d
 ```
 
 ## Installation
 
-### 1. Install Dependencies
+### Option A: Local (Bun)
 
 ```bash
 bun install
+bun run setup    # Interactive CLI for all configuration
+bun run dev      # Development with auto-reload
+bun run start    # Production
 ```
 
-### 2. Configure with Interactive CLI
+### Option B: Docker Compose
+
+```bash
+cp .env.template .env
+# Configure your API keys in .env
+docker compose up -d
+```
+
+The Docker setup includes a persistent volume for the SQLite database.
+
+Server runs on `http://localhost:7123` (configurable via `PORT` env var).
+
+### Interactive Setup CLI
 
 ```bash
 bun run setup
 ```
 
-The CLI provides:
-
 1. **Setup** - Initialize database and run migrations
-2. **Providers API Keys** - Configure provider API keys (Cerebras, Groq, OpenRouter, Gemini)
+2. **Providers API Keys** - Configure provider API keys
 3. **Applications API Keys** - Create/manage application API keys for authentication
 4. **Active Providers** - Enable/disable providers and set rotation order
 5. **Models Management** - Add/edit/delete models, set defaults, toggle fallback, reorder
 6. **System State** - View current configuration status
-
-### 3. Start the Server
-
-```bash
-# Development (auto-reload)
-bun run dev
-
-# Production
-bun run start
-```
-
-Server runs on `http://localhost:7123` (configurable via `PORT` env var).
 
 ## Client Configuration
 
@@ -193,7 +199,7 @@ Manage models via CLI: `bun run setup` → option 5
 
 ## Environment Variables
 
-Create a `.env` file (or use `bun run setup` to configure):
+Create a `.env` file (copy from `.env.template`):
 
 ```env
 # Server
@@ -204,7 +210,23 @@ CEREBRAS_API_KEY=your-key
 GROQ_API_KEY=your-key
 OPENROUTER_API_KEY=your-key
 GEMINI_API_KEY=your-key
+ZAI_API_KEY=your-key
+# ZAI_BASE_URL=https://api.z.ai/api/anthropic
+
+# Ollama (local LLM)
+OLLAMA_ENABLED=true
+OLLAMA_BASE_URL=http://localhost:11434
+
+# Database path (default: ./data/aicarousel.db)
+# DB_PATH=/data/aicarousel.db
+
+# Models configuration (optional, overrides models.json)
+# MODELS_CONFIG={"cerebras":{"default":"qwen-3-32b","enableFallback":true,"models":["qwen-3-32b"]}}
 ```
+
+### MODELS_CONFIG
+
+You can override `models.json` entirely via the `MODELS_CONFIG` environment variable. This is useful for deployments where you can only set env vars (e.g., Coolify, Railway). If set, the env var takes priority over the file.
 
 ## License
 
