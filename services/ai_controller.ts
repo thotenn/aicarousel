@@ -10,6 +10,7 @@ import { Groq } from "groq-sdk";
 import { OpenRouterClient } from "./openrouter_client";
 import { GeminiClient } from "./gemini_client";
 import { OllamaClient } from "./ollama_client";
+import { ZaiClient } from "./zai_client";
 
 export class StandardAIController implements AIServiceWithModel {
   name: string;
@@ -43,6 +44,7 @@ const ClientMap: Record<string, any> = {
   openrouter: OpenRouterClient,
   gemini: GeminiClient,
   ollama: OllamaClient,
+  zai: ZaiClient,
 };
 
 interface ProviderSetting {

@@ -43,6 +43,12 @@ const providerBaseParams = {
     temperature: defaults.temperature,
     top_p: defaults.top_p,
   },
+  zai: {
+    max_completion_tokens: defaults.max_completion_tokens,
+    stream: defaults.stream,
+    temperature: defaults.temperature,
+    top_p: defaults.top_p,
+  },
 } as const;
 
 export type ProviderKey = keyof typeof providerBaseParams;
@@ -73,6 +79,10 @@ export const providers: Record<ProviderKey, {
   ollama: {
     name: "Ollama",
     apiKeyName: "OLLAMA_ENABLED",
+  },
+  zai: {
+    name: "Z.ai",
+    apiKeyName: "ZAI_API_KEY",
   },
 };
 

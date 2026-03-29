@@ -28,5 +28,10 @@
     "default": "gemma3:1b",
     "enableFallback": true,
     "models": ["gemma3:1b", "llama3.2:latest"]
+  },
+  "zai": {
+    "default": "glm-4.7",
+    "enableFallback": true,
+    "models": ["glm-4.7"]
   }
 }
