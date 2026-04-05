@@ -6,6 +6,9 @@ ai-carousel-go/
 
 # Go build output
 /bin/
+/server
+/setup
+/apikey
 *.test
 
 # Go coverage
