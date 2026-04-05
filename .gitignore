@@ -1,3 +1,9 @@
+# Node modules (leftover from TS, keep ignored)
+node_modules/
+
+# Leftover ai-carousel-go working directory (build artifacts, dev DB)
+ai-carousel-go/
+
 # Go build output
 /bin/
 *.test
