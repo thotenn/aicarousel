@@ -1,8 +1,0 @@
-bin/
-data/*.db
-data/*.db-wal
-data/*.db-shm
-.env
-coverage.out
-coverage.html
-*.test

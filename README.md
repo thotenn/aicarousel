@@ -1,178 +1,88 @@
-# AICarousel
+# AICarousel — Go
 
-Multi-provider AI service router with automatic round-robin rotation and fallback. Compatible with Cline, Claude Code, Codex, and any OpenAI/Anthropic-compatible client.
+Go rewrite of [AICarousel](../), a multi-provider AI service router. Routes chat requests to
+multiple AI providers (Cerebras, Groq, OpenRouter, Gemini, Z.ai, Ollama) with round-robin
+rotation and automatic fallback on failure.
 
-## Features
-
-- **Multi-Provider Support**: Cerebras, Groq, OpenRouter, Gemini, Z.ai, Ollama
-- **Automatic Failover**: Round-robin rotation with automatic retry on failure
-- **Intra-Provider Fallback**: Try multiple models within a provider before switching
-- **Configurable Models**: JSON-based model configuration with per-provider settings
-- **API Compatibility**: OpenAI and Anthropic API formats supported
-- **Authentication**: SQLite-based API key management
-- **Interactive CLI**: Unified setup and configuration interface
-- **Streaming**: SSE streaming for all endpoints
-
-## Quick Start
-
-### Local Development
+## Quick start
 
 ```bash
-bun install
-bun run setup
-bun run dev
-```
-
-### Docker Compose
-
-```bash
+# 1. Copy and fill in your API keys
 cp .env.template .env
-# Edit .env with your API keys
-docker compose up -d
+
+# 2. Build all binaries
+make build
+
+# 3. Run interactive setup (initialises DB, configures providers)
+./bin/aicarousel-setup
+
+# 4. Start the server
+./bin/aicarousel-server
 ```
+
+Server listens on **port 7123** (override with `PORT` env var).
 
 ## Installation
 
-### Option A: Local (Bun)
+**Requirements**: Go 1.23+
 
 ```bash
-bun install
-bun run setup    # Interactive CLI for all configuration
-bun run dev      # Development with auto-reload
-bun run start    # Production
+git clone <repo>
+cd ai-carousel-go
+make build          # produces bin/aicarousel-server, bin/aicarousel-setup, bin/aicarousel-apikey
 ```
 
-### Option B: Docker Compose
+## Running
 
 ```bash
-cp .env.template .env
-# Configure your API keys in .env
+# Development (with go run)
+go run ./cmd/server
+
+# Production binary
+./bin/aicarousel-server
+
+# Run database migrations manually
+./bin/aicarousel-server migrate
+```
+
+## Docker
+
+```bash
+# Build and start (persists DB in named volume aicarousel-data)
 docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Stop (DB is preserved)
+docker compose down
 ```
 
-The Docker setup includes a persistent volume for the SQLite database.
+The compose file exposes port `${PORT:-7123}` and joins the external Docker network `shared-net`
+(create it once with `docker network create shared-net`). Other containers can reach the service
+as `aicarousel:7123` on that network.
 
-Server runs on `http://localhost:7123` (configurable via `PORT` env var).
+## Configuration
 
-### Interactive Setup CLI
+Copy `.env.template` to `.env` and set:
 
-```bash
-bun run setup
-```
+| Variable | Description |
+|---|---|
+| `CEREBRAS_API_KEY` | Cerebras AI API key |
+| `GROQ_API_KEY` | Groq API key |
+| `OPENROUTER_API_KEY` | OpenRouter API key |
+| `GEMINI_API_KEY` | Google Gemini API key |
+| `ZAI_API_KEY` | Z.ai API key |
+| `ZAI_BASE_URL` | Z.ai base URL (default: `https://api.z.ai/api/anthropic`) |
+| `OLLAMA_ENABLED` | Set to `true` to enable local Ollama |
+| `OLLAMA_BASE_URL` | Ollama base URL (default: `http://localhost:11434`) |
+| `PORT` | HTTP listen port (default: `7123`) |
+| `DB_PATH` | SQLite DB path (default: `data/aicarousel.db`) |
+| `MODELS_CONFIG` | JSON string that overrides `models.json` entirely |
 
-1. **Setup** - Initialize database and run migrations
-2. **Providers API Keys** - Configure provider API keys
-3. **Applications API Keys** - Create/manage application API keys for authentication
-4. **Active Providers** - Enable/disable providers and set rotation order
-5. **Models Management** - Add/edit/delete models, set defaults, toggle fallback, reorder
-6. **System State** - View current configuration status
+### Models configuration
 
-## Client Configuration
-
-First, create an API key via the CLI (`bun run setup` > option 3) or command line:
-
-```bash
-bun run api-key create "my-client"
-# Save the returned key (sk-xxx...) - shown only once!
-```
-
-### Cline (VS Code Extension)
-
-```
-API Provider: OpenAI Compatible
-Base URL: http://localhost:7123/v1
-API Key: sk-your-api-key
-Model ID: aicarousel
-```
-
-### Claude Code
-
-```bash
-export ANTHROPIC_BASE_URL=http://localhost:7123
-export ANTHROPIC_API_KEY=sk-your-api-key
-```
-
-### Codex CLI
-
-```bash
-export OPENAI_API_BASE=http://localhost:7123/v1
-export OPENAI_API_KEY=sk-your-api-key
-```
-
-### LiteLLM / Other OpenAI-Compatible
-
-```bash
-export OPENAI_API_BASE=http://localhost:7123/v1
-export OPENAI_API_KEY=sk-your-api-key
-```
-
-## API Endpoints
-
-| Endpoint                    | Method | Auth     | Format    | Compatible With       |
-| --------------------------- | ------ | -------- | --------- | --------------------- |
-| `/v1/chat/completions`      | POST   | Required | OpenAI    | Cline, Codex, LiteLLM |
-| `/v1/models`                | GET    | Public   | OpenAI    | Cline, Codex          |
-| `/v1/messages`              | POST   | Required | Anthropic | Claude Code           |
-| `/v1/messages/count_tokens` | POST   | Required | Anthropic | Claude Code           |
-| `/chat`                     | POST   | Required | Legacy    | Direct use            |
-| `/health`                   | GET    | Public   | JSON      | Health checks         |
-
-**Authentication**: Include API key as `Authorization: Bearer sk-xxx` or `x-api-key: sk-xxx`
-
-## Example Requests
-
-### OpenAI Format (Cline, Codex)
-
-```bash
-curl -X POST http://localhost:7123/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer sk-your-api-key" \
-  -d '{
-    "model": "aicarousel",
-    "messages": [{"role": "user", "content": "Hello!"}],
-    "stream": true
-  }'
-```
-
-### Anthropic Format (Claude Code)
-
-```bash
-curl -X POST http://localhost:7123/v1/messages \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: sk-your-api-key" \
-  -H "anthropic-version: 2023-06-01" \
-  -d '{
-    "model": "aicarousel",
-    "max_tokens": 1024,
-    "messages": [{"role": "user", "content": "Hello!"}],
-    "stream": true
-  }'
-```
-
-## Commands
-
-```bash
-# Interactive setup (recommended)
-bun run setup
-
-# Server
-bun run dev              # Development with auto-reload
-bun run start            # Production
-
-# API Key Management (CLI alternative)
-bun run api-key create "name"   # Create new API key
-bun run api-key list            # List all API keys
-bun run api-key revoke <id>     # Revoke an API key
-bun run api-key delete <id>     # Delete an API key
-
-# Database
-bun run db:migrate       # Run migrations
-bun run db:rollback      # Rollback last migration
-```
-
-## Models Configuration
-
-Models are configured in `models.json` at the project root:
+Edit `models.json` to control which models each provider uses and their fallback order:
 
 ```json
 {
@@ -180,54 +90,78 @@ Models are configured in `models.json` at the project root:
     "default": "qwen-3-32b",
     "enableFallback": true,
     "models": ["qwen-3-32b", "llama-3.3-70b"]
-  },
-  "groq": {
-    "default": "llama-3.3-70b-versatile",
-    "enableFallback": true,
-    "models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
   }
 }
 ```
 
-### Fallback Behavior
+## CLI commands
 
-- **`enableFallback: true`**: When a model fails, tries other models in the same provider before moving to next provider
-- **`enableFallback: false`**: Only tries the default model, then moves to next provider
-- **Model order**: First model in the array is tried first (after default), determines fallback priority
+### Interactive setup
 
-Manage models via CLI: `bun run setup` → option 5
-
-## Environment Variables
-
-Create a `.env` file (copy from `.env.template`):
-
-```env
-# Server
-PORT=7123
-
-# Provider API Keys (configure at least one)
-CEREBRAS_API_KEY=your-key
-GROQ_API_KEY=your-key
-OPENROUTER_API_KEY=your-key
-GEMINI_API_KEY=your-key
-ZAI_API_KEY=your-key
-# ZAI_BASE_URL=https://api.z.ai/api/anthropic
-
-# Ollama (local LLM)
-OLLAMA_ENABLED=true
-OLLAMA_BASE_URL=http://localhost:11434
-
-# Database path (default: ./data/aicarousel.db)
-# DB_PATH=/data/aicarousel.db
-
-# Models configuration (optional, overrides models.json)
-# MODELS_CONFIG={"cerebras":{"default":"qwen-3-32b","enableFallback":true,"models":["qwen-3-32b"]}}
+```bash
+./bin/aicarousel-setup
 ```
 
-### MODELS_CONFIG
+Menu options:
+1. **Initial setup** — init DB, run migrations, sync providers
+2. **Provider API keys** — set/view keys (writes to `.env`)
+3. **Application API keys** — create, list, revoke app keys
+4. **Enable/disable providers** — toggle and reorder round-robin priority
+5. **Manage provider models** — add/edit/delete models, set default, toggle fallback
+6. **System status** — DB health, active providers, key count
 
-You can override `models.json` entirely via the `MODELS_CONFIG` environment variable. This is useful for deployments where you can only set env vars (e.g., Coolify, Railway). If set, the env var takes priority over the file.
+### API key management
 
-## License
+```bash
+./bin/aicarousel-apikey create "my-app"   # prints sk-... (shown once)
+./bin/aicarousel-apikey list
+./bin/aicarousel-apikey revoke <id>
+./bin/aicarousel-apikey delete <id>
+```
 
-MIT
+Exit codes: `0` = ok, `1` = usage error, `2` = runtime error.
+
+## API endpoints
+
+| Endpoint | Method | Auth | Compatible with |
+|---|---|---|---|
+| `/v1/chat/completions` | POST | Bearer | Cline, Codex, LiteLLM |
+| `/v1/models` | GET | — | Cline, Codex |
+| `/v1/messages` | POST | x-api-key | Claude Code |
+| `/v1/messages/count_tokens` | POST | x-api-key | Claude Code |
+| `/chat` | POST | Bearer | Legacy direct use |
+| `/health` | GET | — | Health checks |
+
+### Client setup
+
+**Cline (VS Code)**
+```
+API Provider: OpenAI Compatible
+Base URL: http://localhost:7123/v1
+API Key: sk-your-key
+Model ID: aicarousel
+```
+
+**Claude Code**
+```bash
+export ANTHROPIC_BASE_URL=http://localhost:7123
+export ANTHROPIC_API_KEY=sk-your-key
+```
+
+**Codex CLI**
+```bash
+export OPENAI_API_BASE=http://localhost:7123/v1
+export OPENAI_API_KEY=sk-your-key
+```
+
+## Development
+
+```bash
+make test           # go test ./...
+make test-race      # go test -race ./...
+make coverage       # go test -coverprofile=coverage.out + go tool cover -func
+make lint           # golangci-lint run ./...
+make vet            # go vet ./...
+```
+
+Current coverage: **85%** overall. Race detector: green.

@@ -1,20 +1,10 @@
-# dependencies (bun install)
-node_modules
-docs/
+# Go build output
+/bin/
+*.test
 
-# output
-out
-dist
-*.tgz
-
-# code coverage
-coverage
-*.lcov
-
-# logs
-logs
-_.log
-report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+# Go coverage
+coverage.out
+coverage.html
 
 # dotenv environment variable files
 .env
@@ -27,11 +17,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 data/*.db
 data/*.db-wal
 data/*.db-shm
-
-# caches
-.eslintcache
-.cache
-*.tsbuildinfo
 
 # IntelliJ based IDEs
 .idea
