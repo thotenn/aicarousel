@@ -10,10 +10,14 @@ RUN go mod download
 # Copy the rest of the source.
 COPY . .
 
+# Version injected at build time. Defaults to "dev"; override with:
+#   docker build --build-arg APP_VERSION=go-v0.1.0 ...
+ARG APP_VERSION=dev
+
 # Build all three binaries. CGO_ENABLED=0 produces a fully static binary
 # (modernc.org/sqlite is pure Go — no C runtime needed).
 RUN CGO_ENABLED=0 GOOS=linux go build \
-      -ldflags="-s -w" \
+      -ldflags="-s -w -X main.version=${APP_VERSION}" \
       -o /out/aicarousel-server ./cmd/server && \
     CGO_ENABLED=0 GOOS=linux go build \
       -ldflags="-s -w" \

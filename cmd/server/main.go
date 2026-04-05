@@ -50,6 +50,19 @@ func main() {
 	keysRepo := apikeys.New(d)
 	provRepo := provsettings.New(d)
 
+	// Sync provider_settings with the current models config so that providers
+	// added after the initial DB creation (e.g. zai added via MODELS_CONFIG)
+	// are automatically registered on startup.
+	if cfg, err := modelsconfig.Load(); err == nil {
+		keys := make([]string, 0, len(cfg))
+		for k := range cfg {
+			keys = append(keys, k)
+		}
+		if err := provRepo.Sync(context.Background(), keys); err != nil {
+			slog.Warn("provider sync", "err", err)
+		}
+	}
+
 	timeout := time.Duration(config.Cfg.FirstChunkTimeoutMs) * time.Millisecond
 	router := chat.New(timeout, buildListActive(provRepo), buildProviderFn())
 
