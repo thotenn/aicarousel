@@ -1,6 +1,8 @@
 services:
   aicarousel:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "${PORT:-7123}:7123"
     volumes:
@@ -9,7 +11,16 @@ services:
       - .env
     environment:
       - DB_PATH=/app/data/aicarousel.db
+    networks:
+      - shared-net
     restart: unless-stopped
 
 volumes:
   aicarousel-data:
+
+# External network — create once with: docker network create shared-net
+# Allows other containers on this host to reach the server at aicarousel:7123
+# without going through the host network.
+networks:
+  shared-net:
+    external: true

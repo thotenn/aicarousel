@@ -1,20 +1,16 @@
-# dependencies (bun install)
-node_modules
-docs/
+# Node modules (leftover from TS, keep ignored)
+node_modules/
 
-# output
-out
-dist
-*.tgz
+# Leftover ai-carousel-go working directory (build artifacts, dev DB)
+ai-carousel-go/
 
-# code coverage
-coverage
-*.lcov
+# Go build output
+/bin/
+*.test
 
-# logs
-logs
-_.log
-report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+# Go coverage
+coverage.out
+coverage.html
 
 # dotenv environment variable files
 .env
@@ -27,11 +23,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 data/*.db
 data/*.db-wal
 data/*.db-shm
-
-# caches
-.eslintcache
-.cache
-*.tsbuildinfo
 
 # IntelliJ based IDEs
 .idea
