@@ -24,6 +24,7 @@ type Config struct {
 	GeminiAPIKey     string
 	ZaiAPIKey        string
 	ZaiBaseURL       string
+	NvidiaAPIKey     string
 
 	// Ollama (local LLM — no API key, gated by OLLAMA_ENABLED=true)
 	OllamaEnabled bool
@@ -66,6 +67,7 @@ func Load(envPath string) {
 		GeminiAPIKey:        os.Getenv("GEMINI_API_KEY"),
 		ZaiAPIKey:           os.Getenv("ZAI_API_KEY"),
 		ZaiBaseURL:          getEnv("ZAI_BASE_URL", "https://api.z.ai/api/anthropic"),
+		NvidiaAPIKey:        os.Getenv("NVIDIA_API_KEY"),
 		OllamaEnabled:       strings.EqualFold(getEnv("OLLAMA_ENABLED", "false"), "true"),
 		OllamaBaseURL:       getEnv("OLLAMA_BASE_URL", "http://localhost:11434"),
 		ModelsConfigJSON:    os.Getenv("MODELS_CONFIG"),

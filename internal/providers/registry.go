@@ -4,6 +4,7 @@ import (
 	"github.com/thotenn/aicarousel/internal/providers/cerebras"
 	"github.com/thotenn/aicarousel/internal/providers/gemini"
 	"github.com/thotenn/aicarousel/internal/providers/groq"
+	"github.com/thotenn/aicarousel/internal/providers/nvidia"
 	"github.com/thotenn/aicarousel/internal/providers/ollama"
 	"github.com/thotenn/aicarousel/internal/providers/openrouter"
 	"github.com/thotenn/aicarousel/internal/providers/zai"
@@ -20,6 +21,7 @@ var factories = map[string]Factory{
 	"gemini":     gemini.New,
 	"ollama":     ollama.New,
 	"zai":        zai.New,
+	"nvidia":     nvidia.New,
 }
 
 // New returns the Provider for the given key, constructed with apiKey and

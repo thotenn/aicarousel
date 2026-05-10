@@ -172,6 +172,8 @@ func providerAPIKey(key string) string {
 		return config.Cfg.GeminiAPIKey
 	case "zai":
 		return config.Cfg.ZaiAPIKey
+	case "nvidia":
+		return config.Cfg.NvidiaAPIKey
 	case "ollama":
 		return "" // Ollama uses no API key
 	default:

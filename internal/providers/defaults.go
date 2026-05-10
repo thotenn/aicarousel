@@ -31,4 +31,5 @@ var Meta = map[string]ProviderInfo{
 	"gemini":     {Key: "gemini", Name: "Gemini", EnvKey: "GEMINI_API_KEY"},
 	"ollama":     {Key: "ollama", Name: "Ollama", EnvKey: "OLLAMA_ENABLED"},
 	"zai":        {Key: "zai", Name: "Z.ai", EnvKey: "ZAI_API_KEY"},
+	"nvidia":     {Key: "nvidia", Name: "NVIDIA Build", EnvKey: "NVIDIA_API_KEY"},
 }

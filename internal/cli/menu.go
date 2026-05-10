@@ -29,6 +29,7 @@ var providerMeta = []struct {
 	{"gemini", "Gemini", "GEMINI_API_KEY"},
 	{"ollama", "Ollama", "OLLAMA_ENABLED"},
 	{"zai", "Z.ai", "ZAI_API_KEY"},
+	{"nvidia", "NVIDIA Build", "NVIDIA_API_KEY"},
 }
 
 // providerEntry holds provider info enriched from the .env file.
