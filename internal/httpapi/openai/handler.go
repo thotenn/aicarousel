@@ -15,7 +15,7 @@ import (
 
 // chatRouter is the minimal interface handlers require from the chat.Router.
 type chatRouter interface {
-	Handle(ctx context.Context, msgs []chat.ChatMessage) (<-chan chat.StreamChunk, error)
+	Handle(ctx context.Context, msgs []chat.ChatMessage, opts chat.Options) (<-chan chat.StreamChunk, error)
 }
 
 // Handler holds dependencies for OpenAI-compatible HTTP endpoints.
@@ -36,9 +36,13 @@ func (h *Handler) Register(mux *http.ServeMux) {
 // ── request body ─────────────────────────────────────────────────────────────
 
 type completionRequest struct {
-	Model    string            `json:"model"`
-	Messages []messageRequest  `json:"messages"`
-	Stream   *bool             `json:"stream"`
+	Model       string           `json:"model"`
+	Messages    []messageRequest `json:"messages"`
+	Stream      *bool            `json:"stream"`
+	Temperature *float64         `json:"temperature"`
+	TopP        *float64         `json:"top_p"`
+	MaxTokens   *int             `json:"max_tokens"`
+	Stop        *string          `json:"stop"`
 }
 
 type messageRequest struct {
@@ -91,7 +95,14 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// stream defaults to true
 	shouldStream := req.Stream == nil || *req.Stream
 
-	ch, err := h.router.Handle(r.Context(), msgs)
+	opts := chat.Options{
+		Temperature: req.Temperature,
+		TopP:        req.TopP,
+		MaxTokens:   req.MaxTokens,
+		Stop:        req.Stop,
+	}
+
+	ch, err := h.router.Handle(r.Context(), msgs, opts)
 	if err != nil {
 		writeError(w, "All AI services failed", "server_error", nil, http.StatusServiceUnavailable)
 		return

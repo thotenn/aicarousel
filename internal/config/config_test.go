@@ -124,7 +124,7 @@ func TestLoad_ollamaEnabledCaseInsensitive(t *testing.T) {
 		{"false", false},
 		{"False", false},
 		{"FALSE", false},
-		{"yes", false},  // only "true" (case-insensitive) is accepted
+		{"yes", false}, // only "true" (case-insensitive) is accepted
 		{"1", false},
 		{"", false},
 	}
@@ -231,4 +231,73 @@ func TestLoad_modelsConfigJSON(t *testing.T) {
 	if Cfg.ModelsConfigJSON != payload {
 		t.Errorf("ModelsConfigJSON: got %q", Cfg.ModelsConfigJSON)
 	}
+}
+
+func TestLoad_OllamaNumCtx(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		set   bool
+		want  int
+	}{
+		{"default when unset", "", false, 8192},
+		{"explicit value", "16384", true, 16384},
+		{"invalid falls back", "not-a-number", true, 8192},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			saveCfg(t)
+			if tt.set {
+				t.Setenv("OLLAMA_NUM_CTX", tt.value)
+			} else {
+				unsetenv(t, "OLLAMA_NUM_CTX")
+			}
+
+			Load(noEnvFile(t))
+
+			if Cfg.OllamaNumCtx != tt.want {
+				t.Errorf("OllamaNumCtx = %d, want %d", Cfg.OllamaNumCtx, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoad_ModelsWithoutSystemRole(t *testing.T) {
+	t.Run("nil when unset", func(t *testing.T) {
+		saveCfg(t)
+		unsetenv(t, "MODELS_WITHOUT_SYSTEM_ROLE")
+
+		Load(noEnvFile(t))
+
+		if Cfg.ModelsWithoutSystemRole != nil {
+			t.Errorf("want nil (so defaults apply), got %#v", Cfg.ModelsWithoutSystemRole)
+		}
+	})
+
+	t.Run("parsed, trimmed and lowercased", func(t *testing.T) {
+		saveCfg(t)
+		t.Setenv("MODELS_WITHOUT_SYSTEM_ROLE", " Gemma , PHI3 ")
+
+		Load(noEnvFile(t))
+
+		got := Cfg.ModelsWithoutSystemRole
+		if len(got) != 2 || got[0] != "gemma" || got[1] != "phi3" {
+			t.Errorf("got %#v, want [gemma phi3]", got)
+		}
+	})
+
+	t.Run("empty but set disables the adaptation", func(t *testing.T) {
+		saveCfg(t)
+		t.Setenv("MODELS_WITHOUT_SYSTEM_ROLE", "")
+
+		Load(noEnvFile(t))
+
+		if Cfg.ModelsWithoutSystemRole == nil {
+			t.Fatal("want an empty non-nil slice, got nil")
+		}
+		if len(Cfg.ModelsWithoutSystemRole) != 0 {
+			t.Errorf("want empty slice, got %#v", Cfg.ModelsWithoutSystemRole)
+		}
+	})
 }

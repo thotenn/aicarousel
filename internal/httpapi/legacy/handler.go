@@ -10,7 +10,7 @@ import (
 
 // chatRouter is the minimal interface the handler requires.
 type chatRouter interface {
-	Handle(ctx context.Context, msgs []chat.ChatMessage) (<-chan chat.StreamChunk, error)
+	Handle(ctx context.Context, msgs []chat.ChatMessage, opts chat.Options) (<-chan chat.StreamChunk, error)
 }
 
 // Handler holds dependencies for the legacy /chat endpoint.
@@ -34,7 +34,7 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ch, err := h.router.Handle(r.Context(), msgs)
+	ch, err := h.router.Handle(r.Context(), msgs, chat.Options{})
 	if err != nil {
 		http.Error(w, "All providers exhausted: "+err.Error(), http.StatusServiceUnavailable)
 		return

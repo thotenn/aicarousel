@@ -23,7 +23,7 @@ func newRouter(
 	listActive := func(_ context.Context) ([]chat.ActiveProvider, error) {
 		return aps, nil
 	}
-	buildP := func(key, model string) (chat.Provider, error) {
+	buildP := func(key, model string, _ chat.Options) (chat.Provider, error) {
 		id := key + "/" + model
 		p, ok := registry[id]
 		if !ok {
@@ -66,7 +66,7 @@ func TestRouter_SingleProvider_Success(t *testing.T) {
 	p := &testutil.OkProvider{ProviderKey: "p1", ProviderModel: "m1", Chunks: []string{"hello", " world"}}
 	r := newRouter(100*time.Millisecond, []chat.ActiveProvider{ap}, map[string]chat.Provider{"p1/m1": p})
 
-	ch, err := r.Handle(context.Background(), nil)
+	ch, err := r.Handle(context.Background(), nil, chat.Options{})
 	if err != nil {
 		t.Fatalf("unexpected Handle error: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestRouter_NoActiveProviders_ReturnsError(t *testing.T) {
 	listActive := func(_ context.Context) ([]chat.ActiveProvider, error) { return nil, nil }
 	r := chat.New(100*time.Millisecond, listActive, nil)
 
-	_, err := r.Handle(context.Background(), nil)
+	_, err := r.Handle(context.Background(), nil, chat.Options{})
 	if err == nil {
 		t.Fatal("expected error for no providers")
 	}
@@ -93,7 +93,7 @@ func TestRouter_ListActiveError_PropagatesError(t *testing.T) {
 	listActive := func(_ context.Context) ([]chat.ActiveProvider, error) { return nil, sentinel }
 	r := chat.New(100*time.Millisecond, listActive, nil)
 
-	_, err := r.Handle(context.Background(), nil)
+	_, err := r.Handle(context.Background(), nil, chat.Options{})
 	if !errors.Is(err, sentinel) {
 		t.Errorf("expected sentinel error, got %v", err)
 	}
@@ -114,7 +114,7 @@ func TestRouter_CrossProvider_Fallback(t *testing.T) {
 	}
 	r := newRouter(100*time.Millisecond, aps, registry)
 
-	ch, err := r.Handle(context.Background(), nil)
+	ch, err := r.Handle(context.Background(), nil, chat.Options{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestRouter_IntraProvider_Fallback(t *testing.T) {
 	}
 	r := newRouter(100*time.Millisecond, []chat.ActiveProvider{ap}, registry)
 
-	ch, err := r.Handle(context.Background(), nil)
+	ch, err := r.Handle(context.Background(), nil, chat.Options{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestRouter_FallbackDisabled_SkipsToNextProvider(t *testing.T) {
 
 	r := newRouter(100*time.Millisecond, []chat.ActiveProvider{p1, p2}, registry)
 
-	ch, err := r.Handle(context.Background(), nil)
+	ch, err := r.Handle(context.Background(), nil, chat.Options{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestRouter_AllProvidersFail_ReturnsError(t *testing.T) {
 	}
 	r := newRouter(100*time.Millisecond, aps, registry)
 
-	_, err := r.Handle(context.Background(), nil)
+	_, err := r.Handle(context.Background(), nil, chat.Options{})
 	if err == nil {
 		t.Fatal("expected error when all providers fail")
 	}
@@ -227,21 +227,21 @@ func TestRouter_RoundRobin_AdvancesOnSuccess(t *testing.T) {
 	r := newRouter(100*time.Millisecond, aps, registry)
 
 	// Request 1 → should hit p1 (index 0).
-	ch1, err := r.Handle(context.Background(), nil)
+	ch1, err := r.Handle(context.Background(), nil, chat.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	drain(ch1) //nolint:errcheck
 
 	// Request 2 → should hit p2 (index 1).
-	ch2, err := r.Handle(context.Background(), nil)
+	ch2, err := r.Handle(context.Background(), nil, chat.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	drain(ch2) //nolint:errcheck
 
 	// Request 3 → wraps around to p1 again.
-	ch3, err := r.Handle(context.Background(), nil)
+	ch3, err := r.Handle(context.Background(), nil, chat.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func TestRouter_RoundRobin_DoesNotAdvanceOnFailure(t *testing.T) {
 
 	// Both requests should exhaust p1, fall back to p2, and p2 advances the index.
 	for i := 0; i < 2; i++ {
-		ch, err := r.Handle(context.Background(), nil)
+		ch, err := r.Handle(context.Background(), nil, chat.Options{})
 		if err != nil {
 			t.Fatalf("request %d: %v", i+1, err)
 		}
@@ -301,7 +301,7 @@ func TestRouter_ProbeTimeout_FallsBackToNextProvider(t *testing.T) {
 	registry := map[string]chat.Provider{"p1/m1": slow, "p2/m2": fast}
 	r := newRouter(50*time.Millisecond, aps, registry) // 50ms probe timeout
 
-	ch, err := r.Handle(context.Background(), nil)
+	ch, err := r.Handle(context.Background(), nil, chat.Options{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestRouter_CancelledProbes_CleanUpGoroutines(t *testing.T) {
 			[]chat.ActiveProvider{ap},
 			map[string]chat.Provider{key + "/" + model: registry[key+"/"+model]},
 		)
-		_, err := r.Handle(context.Background(), nil)
+		_, err := r.Handle(context.Background(), nil, chat.Options{})
 		if err == nil {
 			t.Errorf("router %d: expected error from slow provider", i)
 		}
@@ -377,7 +377,7 @@ func TestRouter_ContextCancelled_MidStream(t *testing.T) {
 	r := newRouter(100*time.Millisecond, []chat.ActiveProvider{ap}, map[string]chat.Provider{"p1/m1": p})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ch, err := r.Handle(ctx, nil)
+	ch, err := r.Handle(ctx, nil, chat.Options{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -424,12 +424,108 @@ func TestRouter_NoProviders_ReturnsError(t *testing.T) {
 	// listActive returns empty slice → Snapshot(0) and Advance(0,0) branches hit.
 	r := chat.New(0,
 		func(_ context.Context) ([]chat.ActiveProvider, error) { return nil, nil },
-		func(_, _ string) (chat.Provider, error) {
+		func(_, _ string, _ chat.Options) (chat.Provider, error) {
 			return &testutil.OkProvider{ProviderKey: "p", ProviderModel: "m", Chunks: []string{"x"}}, nil
 		},
 	)
-	_, err := r.Handle(context.Background(), []chat.ChatMessage{{Role: "user", Content: "hi"}})
+	_, err := r.Handle(context.Background(), []chat.ChatMessage{{Role: "user", Content: "hi"}}, chat.Options{})
 	if err == nil {
 		t.Fatal("expected error with no providers, got nil")
+	}
+}
+
+// ─── system-role adaptation ──────────────────────────────────────────────────
+
+// msgCaptureProvider records the messages it actually received.
+type msgCaptureProvider struct {
+	key      string
+	model    string
+	received *[]chat.ChatMessage
+}
+
+func (p *msgCaptureProvider) Name() string  { return p.key }
+func (p *msgCaptureProvider) Key() string   { return p.key }
+func (p *msgCaptureProvider) Model() string { return p.model }
+
+func (p *msgCaptureProvider) Chat(_ context.Context, msgs []chat.ChatMessage) (<-chan chat.StreamChunk, error) {
+	*p.received = append(*p.received, msgs...)
+	ch := make(chan chat.StreamChunk, 1)
+	ch <- chat.StreamChunk{Text: "ok"}
+	close(ch)
+	return ch, nil
+}
+
+// TestRouter_AdaptsMessagesForModel verifies the router strips the system role
+// for models whose template lacks it, and leaves it alone otherwise.
+func TestRouter_AdaptsMessagesForModel(t *testing.T) {
+	msgs := []chat.ChatMessage{
+		{Role: "system", Content: "You are Thotenn."},
+		{Role: "user", Content: "hola"},
+	}
+
+	tests := []struct {
+		name       string
+		model      string
+		wantLen    int
+		wantFirst  string
+		wantMerged bool
+	}{
+		{"model with system role", "llama3.2:latest", 2, "system", false},
+		{"model without system role", "gemma2:2b", 1, "user", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var received []chat.ChatMessage
+			p := &msgCaptureProvider{key: "p1", model: tt.model, received: &received}
+			ap := sampleAP("p1", tt.model)
+			r := newRouter(time.Second, []chat.ActiveProvider{ap},
+				map[string]chat.Provider{"p1/" + tt.model: p})
+
+			ch, err := r.Handle(context.Background(), msgs, chat.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			drain(ch)
+
+			if len(received) != tt.wantLen {
+				t.Fatalf("provider received %d messages, want %d", len(received), tt.wantLen)
+			}
+			if received[0].Role != tt.wantFirst {
+				t.Errorf("first role = %q, want %q", received[0].Role, tt.wantFirst)
+			}
+			if tt.wantMerged && !strings.Contains(received[0].Content, "SYSTEM INSTRUCTIONS") {
+				t.Errorf("merged turn missing delimiters: %q", received[0].Content)
+			}
+		})
+	}
+
+	// The caller's slice must survive untouched for the next provider attempt.
+	if len(msgs) != 2 || msgs[0].Role != "system" {
+		t.Errorf("router mutated the caller's messages: %+v", msgs)
+	}
+}
+
+// TestRouter_PassesOptionsToBuildProvider verifies per-request options reach the
+// provider factory.
+func TestRouter_PassesOptionsToBuildProvider(t *testing.T) {
+	var gotOpts chat.Options
+	listActive := func(_ context.Context) ([]chat.ActiveProvider, error) {
+		return []chat.ActiveProvider{sampleAP("p1", "m1")}, nil
+	}
+	buildP := func(_, _ string, opts chat.Options) (chat.Provider, error) {
+		gotOpts = opts
+		return &testutil.OkProvider{ProviderKey: "p1", ProviderModel: "m1", Chunks: []string{"ok"}}, nil
+	}
+	r := chat.New(time.Second, listActive, buildP)
+
+	ch, err := r.Handle(context.Background(), nil, chat.Options{Temperature: chat.Float64Ptr(0.2)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	drain(ch)
+
+	if gotOpts.Temperature == nil || *gotOpts.Temperature != 0.2 {
+		t.Errorf("temperature = %v, want 0.2", gotOpts.Temperature)
 	}
 }

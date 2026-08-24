@@ -76,9 +76,39 @@ Copy `.env.template` to `.env` and set:
 | `ZAI_BASE_URL` | Z.ai base URL (default: `https://api.z.ai/api/anthropic`) |
 | `OLLAMA_ENABLED` | Set to `true` to enable local Ollama |
 | `OLLAMA_BASE_URL` | Ollama base URL (default: `http://localhost:11434`) |
+| `OLLAMA_NUM_CTX` | Ollama context window in tokens (default: `8192`) |
+| `MODELS_WITHOUT_SYSTEM_ROLE` | Models whose template has no `system` role (default: `gemma`) |
 | `PORT` | HTTP listen port (default: `7123`) |
 | `DB_PATH` | SQLite DB path (default: `data/aicarousel.db`) |
 | `MODELS_CONFIG` | JSON string that overrides `models.json` entirely |
+
+### Models without a `system` role
+
+Not every chat template has a dedicated `system` role. Gemma is the canonical
+example: its template renders system messages exactly as user messages, so a
+system prompt reaches the model as if the end user had typed it — small models
+then quote or comment on those instructions instead of following them.
+
+For any model matching `MODELS_WITHOUT_SYSTEM_ROLE` (default: `gemma`, matched
+as a case-insensitive substring of the model name), the router merges every
+system message into the first user turn, wrapped in explicit delimiters that
+mark it as internal configuration. Set the variable to an empty value to disable
+the adaptation, or to your own comma-separated list to extend it.
+
+### Ollama context window
+
+The Ollama adapter talks to the native `/api/chat` endpoint instead of the
+OpenAI-compatible one, because the compatibility layer accepts no `options`
+object and therefore cannot set `num_ctx`. Ollama's default context window is
+4096 tokens (2048 on older installs) and it truncates from the front, dropping
+the system prompt first. `OLLAMA_NUM_CTX` (default: 8192) sets it explicitly.
+
+### Sampling parameters
+
+`temperature`, `top_p`, `max_tokens` and `stop` from the incoming request are
+forwarded to the provider and take precedence over the defaults in
+`internal/providers/provparams`. Parameters the caller omits keep the provider
+default.
 
 ### Models configuration
 

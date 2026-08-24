@@ -95,10 +95,39 @@ models.json               # Provider model config (default, fallback, list)
 ### Request flow
 
 1. Request arrives → middleware chain: CORS → recover → auth.Gate → mux
-2. Handler decodes request, maps to `[]chat.ChatMessage`
+2. Handler decodes request, maps to `[]chat.ChatMessage` plus a `chat.Options`
+   carrying the caller's sampling params (`temperature`, `top_p`, `max_tokens`, `stop`)
 3. `chat.Router.Handle()` picks next provider (round-robin), probes with first-chunk timeout
-4. On failure: intra-provider model fallback (if enabled), then cross-provider fallback
-5. Formatter converts stream to SSE (OpenAI or Anthropic format)
+4. Before each attempt, `chat.AdaptMessagesForModel()` reshapes the messages for
+   the chosen model's chat template (see below)
+5. On failure: intra-provider model fallback (if enabled), then cross-provider fallback
+6. Formatter converts stream to SSE (OpenAI or Anthropic format)
+
+### System-role adaptation
+
+`internal/chat/systemrole.go` handles models whose chat template has no dedicated
+`system` role — Gemma renders system messages exactly like user messages, so the
+system prompt reaches the model as if the user had typed it, and small models end
+up quoting or commenting on it. For models matching `MODELS_WITHOUT_SYSTEM_ROLE`
+(default `gemma`), the router merges the system messages into the first user turn
+behind explicit delimiters. It runs in `tryProvider`, not `Handle`, because the
+target model is only known once a provider has been picked and fallback may land
+on a different one.
+
+### Sampling parameters
+
+`chat.Options` uses pointer fields so "unset" is distinguishable from a zero
+value. `applyOptions` in `cmd/server/main.go` overlays them on
+`provparams.DefaultParams`; anything the caller omits keeps the provider default.
+
+### Ollama native endpoint
+
+`internal/providers/ollama` uses Ollama's native `/api/chat`, not the
+OpenAI-compatible `/v1/chat/completions`: only the native one accepts an
+`options` object, which is where `num_ctx` lives. Without it the context window
+stays at Ollama's 4096-token default, which truncates long system prompts from
+the front. The stream is NDJSON (one JSON object per line), and reasoning models'
+`thinking` field is deliberately dropped.
 
 ## Models Configuration
 
@@ -130,6 +159,8 @@ Copy `.env.template` to `.env`:
 | `ZAI_BASE_URL` | Z.ai base URL (default: `https://api.z.ai/api/anthropic`) |
 | `OLLAMA_ENABLED` | `true` to enable local Ollama |
 | `OLLAMA_BASE_URL` | Ollama URL (default: `http://localhost:11434`) |
+| `OLLAMA_NUM_CTX` | Ollama context window in tokens (default: `8192`) |
+| `MODELS_WITHOUT_SYSTEM_ROLE` | Models whose template has no `system` role (default: `gemma`) |
 | `PORT` | Listen port (default: `7123`) |
 | `DB_PATH` | SQLite path (default: `data/aicarousel.db`) |
 | `MODELS_CONFIG` | JSON override for `models.json` |

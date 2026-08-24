@@ -10,15 +10,19 @@ import (
 	"testing"
 
 	"github.com/thotenn/aicarousel/internal/chat"
+	"github.com/thotenn/aicarousel/internal/config"
 	"github.com/thotenn/aicarousel/internal/providers/provparams"
 	"github.com/thotenn/aicarousel/testutil"
 )
 
 func sampleParams() provparams.Params { return provparams.DefaultParams("llama3") }
 
-func sseChunk(content string) string {
-	return fmt.Sprintf("data: {\"choices\":[{\"delta\":{\"content\":%q}}]}\n\n", content)
+// ndjsonChunk renders one line of Ollama's native stream.
+func ndjsonChunk(content string) string {
+	return fmt.Sprintf("{\"message\":{\"role\":\"assistant\",\"content\":%q},\"done\":false}\n", content)
 }
+
+const ndjsonDone = "{\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true}\n"
 
 func collect(t *testing.T, ch <-chan chat.StreamChunk) string {
 	t.Helper()
@@ -31,14 +35,14 @@ func collect(t *testing.T, ch <-chan chat.StreamChunk) string {
 
 func TestChat_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, sseChunk("local"))   //nolint:errcheck
-		fmt.Fprint(w, sseChunk(" llm"))    //nolint:errcheck
-		fmt.Fprint(w, "data: [DONE]\n\n") //nolint:errcheck
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		fmt.Fprint(w, ndjsonChunk("local")) //nolint:errcheck
+		fmt.Fprint(w, ndjsonChunk(" llm"))  //nolint:errcheck
+		fmt.Fprint(w, ndjsonDone)           //nolint:errcheck
 	}))
 	defer srv.Close()
 
-	c := newClient(srv.URL+"/v1/chat/completions", sampleParams(), &http.Client{})
+	c := newClient(srv.URL+"/api/chat", sampleParams(), &http.Client{})
 	ch, err := c.Chat(context.Background(), []chat.ChatMessage{{Role: "user", Content: "hi"}})
 	if err != nil {
 		t.Fatal(err)
@@ -48,39 +52,133 @@ func TestChat_Success(t *testing.T) {
 	}
 }
 
-// TestChat_UsesMaxTokens verifies that Ollama uses "max_tokens" (not "max_completion_tokens").
-func TestChat_UsesMaxTokens(t *testing.T) {
+// TestChat_UsesNativeOptions verifies generation settings go in the native
+// "options" object (the only place num_ctx can be set), not at the top level.
+func TestChat_UsesNativeOptions(t *testing.T) {
 	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data: [DONE]\n\n") //nolint:errcheck
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		fmt.Fprint(w, ndjsonDone) //nolint:errcheck
 	}))
 	defer srv.Close()
 
-	c := newClient(srv.URL+"/v1/chat/completions", sampleParams(), &http.Client{})
+	c := newClient(srv.URL+"/api/chat", sampleParams(), &http.Client{})
 	ch, _ := c.Chat(context.Background(), nil)
-	for range ch {}
+	for range ch {
+	}
 
-	if _, ok := body["max_tokens"]; !ok {
-		t.Error("request body must contain 'max_tokens'")
+	opts, ok := body["options"].(map[string]any)
+	if !ok {
+		t.Fatal("request body must contain an 'options' object")
+	}
+	if _, ok := opts["num_ctx"]; !ok {
+		t.Error("options must contain 'num_ctx'")
+	}
+	if got := opts["num_predict"]; got != float64(provparams.DefaultMaxTokens) {
+		t.Errorf("num_predict = %v, want %v", got, provparams.DefaultMaxTokens)
+	}
+	if _, ok := body["max_tokens"]; ok {
+		t.Error("request body must NOT contain a top-level 'max_tokens'")
 	}
 	if _, ok := body["max_completion_tokens"]; ok {
-		t.Error("request body must NOT contain 'max_completion_tokens' for Ollama")
+		t.Error("request body must NOT contain 'max_completion_tokens'")
 	}
 }
 
-// TestChat_MalformedJSONLine_Skipped verifies that malformed SSE JSON is silently skipped.
-func TestChat_MalformedJSONLine_Skipped(t *testing.T) {
+// TestChat_NumCtxFromConfig verifies OLLAMA_NUM_CTX reaches the request, and
+// that an unset/invalid value falls back to the default.
+func TestChat_NumCtxFromConfig(t *testing.T) {
+	tests := []struct {
+		name      string
+		configVal int
+		want      float64
+	}{
+		{"from config", 16384, 16384},
+		{"unset falls back", 0, defaultNumCtx},
+		{"negative falls back", -1, defaultNumCtx},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := config.Cfg.OllamaNumCtx
+			config.Cfg.OllamaNumCtx = tt.configVal
+			defer func() { config.Cfg.OllamaNumCtx = original }()
+
+			var body map[string]any
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+				fmt.Fprint(w, ndjsonDone)             //nolint:errcheck
+			}))
+			defer srv.Close()
+
+			c := newClient(srv.URL+"/api/chat", sampleParams(), &http.Client{})
+			ch, _ := c.Chat(context.Background(), nil)
+			for range ch {
+			}
+
+			opts := body["options"].(map[string]any)
+			if got := opts["num_ctx"]; got != tt.want {
+				t.Errorf("num_ctx = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestChat_StopSequence verifies a stop value is passed as an array.
+func TestChat_StopSequence(t *testing.T) {
+	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data: {not valid json}\n\n") //nolint:errcheck // malformed //nolint:errcheck
-		fmt.Fprint(w, sseChunk("good"))             //nolint:errcheck
-		fmt.Fprint(w, "data: [DONE]\n\n")           //nolint:errcheck
+		json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+		fmt.Fprint(w, ndjsonDone)             //nolint:errcheck
 	}))
 	defer srv.Close()
 
-	c := newClient(srv.URL+"/v1/chat/completions", sampleParams(), &http.Client{})
+	params := sampleParams()
+	stop := "<end>"
+	params.Stop = &stop
+
+	c := newClient(srv.URL+"/api/chat", params, &http.Client{})
+	ch, _ := c.Chat(context.Background(), nil)
+	for range ch {
+	}
+
+	opts := body["options"].(map[string]any)
+	got, ok := opts["stop"].([]any)
+	if !ok || len(got) != 1 || got[0] != "<end>" {
+		t.Errorf("stop = %v, want [\"<end>\"]", opts["stop"])
+	}
+}
+
+// TestChat_ThinkingIgnored verifies reasoning output never reaches the caller.
+func TestChat_ThinkingIgnored(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "{\"message\":{\"content\":\"\",\"thinking\":\"secret reasoning\"},\"done\":false}\n") //nolint:errcheck
+		fmt.Fprint(w, ndjsonChunk("answer"))                                                                 //nolint:errcheck
+		fmt.Fprint(w, ndjsonDone)                                                                            //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	c := newClient(srv.URL+"/api/chat", sampleParams(), &http.Client{})
+	ch, err := c.Chat(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := collect(t, ch); got != "answer" {
+		t.Errorf("got %q, want %q", got, "answer")
+	}
+}
+
+// TestChat_MalformedJSONLine_Skipped verifies that malformed NDJSON is silently skipped.
+func TestChat_MalformedJSONLine_Skipped(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "{not valid json}\n") //nolint:errcheck
+		fmt.Fprint(w, ndjsonChunk("good"))  //nolint:errcheck
+		fmt.Fprint(w, ndjsonDone)           //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	c := newClient(srv.URL+"/api/chat", sampleParams(), &http.Client{})
 	ch, err := c.Chat(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -94,14 +192,14 @@ func TestChat_RequestHeaders(t *testing.T) {
 	var gotUA string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUA = r.Header.Get("User-Agent")
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data: [DONE]\n\n") //nolint:errcheck
+		fmt.Fprint(w, ndjsonDone) //nolint:errcheck
 	}))
 	defer srv.Close()
 
-	c := newClient(srv.URL+"/v1/chat/completions", sampleParams(), &http.Client{})
+	c := newClient(srv.URL+"/api/chat", sampleParams(), &http.Client{})
 	ch, _ := c.Chat(context.Background(), nil)
-	for range ch {}
+	for range ch {
+	}
 
 	if !strings.HasPrefix(gotUA, "AICarousel-Go/") {
 		t.Errorf("User-Agent: got %q", gotUA)
@@ -114,7 +212,7 @@ func TestChat_Non200_ReturnsError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newClient(srv.URL+"/v1/chat/completions", sampleParams(), &http.Client{})
+	c := newClient(srv.URL+"/api/chat", sampleParams(), &http.Client{})
 	_, err := c.Chat(context.Background(), nil)
 	if err == nil || !strings.Contains(err.Error(), "404") {
 		t.Errorf("expected 404 error, got %v", err)
@@ -126,8 +224,7 @@ func TestChat_FDLeak_CancelledProbes(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		flusher := w.(http.Flusher)
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, sseChunk("ok")) //nolint:errcheck
+		fmt.Fprint(w, ndjsonChunk("ok")) //nolint:errcheck
 		flusher.Flush()
 		<-r.Context().Done()
 	}))
@@ -138,14 +235,15 @@ func TestChat_FDLeak_CancelledProbes(t *testing.T) {
 
 	for i := 0; i < N; i++ {
 		ctx, cancel := context.WithCancel(context.Background())
-		c := newClient(srv.URL+"/v1/chat/completions", sampleParams(), httpClient)
+		c := newClient(srv.URL+"/api/chat", sampleParams(), httpClient)
 		ch, err := c.Chat(ctx, nil)
 		if err != nil {
 			t.Fatalf("iteration %d: %v", i, err)
 		}
 		<-ch
 		cancel()
-		for range ch {}
+		for range ch {
+		}
 	}
 
 	if got := tt.Closes(); got != N {

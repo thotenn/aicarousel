@@ -15,7 +15,7 @@ import (
 
 // chatRouter is the minimal interface handlers require from the chat.Router.
 type chatRouter interface {
-	Handle(ctx context.Context, msgs []chat.ChatMessage) (<-chan chat.StreamChunk, error)
+	Handle(ctx context.Context, msgs []chat.ChatMessage, opts chat.Options) (<-chan chat.StreamChunk, error)
 }
 
 // Handler holds dependencies for Anthropic-compatible HTTP endpoints.
@@ -35,11 +35,13 @@ func (h *Handler) Register(mux *http.ServeMux) {
 // ── request body ─────────────────────────────────────────────────────────────
 
 type messagesRequest struct {
-	Model     string          `json:"model"`
-	Messages  []anthMessage   `json:"messages"`
-	System    json.RawMessage `json:"system"`    // string | [{type,text}]
-	MaxTokens *int            `json:"max_tokens"` // required
-	Stream    *bool           `json:"stream"`
+	Model       string          `json:"model"`
+	Messages    []anthMessage   `json:"messages"`
+	System      json.RawMessage `json:"system"`     // string | [{type,text}]
+	MaxTokens   *int            `json:"max_tokens"` // required
+	Stream      *bool           `json:"stream"`
+	Temperature *float64        `json:"temperature"`
+	TopP        *float64        `json:"top_p"`
 }
 
 type anthMessage struct {
@@ -97,7 +99,13 @@ func (h *Handler) messages(w http.ResponseWriter, r *http.Request) {
 	// stream defaults to false for Anthropic
 	shouldStream := req.Stream != nil && *req.Stream
 
-	ch, err := h.router.Handle(r.Context(), msgs)
+	opts := chat.Options{
+		Temperature: req.Temperature,
+		TopP:        req.TopP,
+		MaxTokens:   req.MaxTokens,
+	}
+
+	ch, err := h.router.Handle(r.Context(), msgs, opts)
 	if err != nil {
 		writeError(w, "All AI services failed", "api_error", http.StatusServiceUnavailable)
 		return
@@ -145,7 +153,7 @@ func (h *Handler) countTokens(w http.ResponseWriter, r *http.Request) {
 	inputTokens := (total + 3) / 4
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = time.Now() // ensure time import is used (used in messages handler via formatter)
+	_ = time.Now()                     // ensure time import is used (used in messages handler via formatter)
 	json.NewEncoder(w).Encode(struct { //nolint:errcheck
 		InputTokens int `json:"input_tokens"`
 	}{inputTokens})

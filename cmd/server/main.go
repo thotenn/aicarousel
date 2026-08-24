@@ -146,16 +146,34 @@ func providerIsAvailable(info providers.ProviderInfo) bool {
 }
 
 // buildProviderFn returns a buildProvider function for chat.New.
-func buildProviderFn() func(key, model string) (chat.Provider, error) {
-	return func(key, model string) (chat.Provider, error) {
+func buildProviderFn() func(key, model string, opts chat.Options) (chat.Provider, error) {
+	return func(key, model string, opts chat.Options) (chat.Provider, error) {
 		apiKey := providerAPIKey(key)
-		params := provparams.DefaultParams(model)
+		params := applyOptions(provparams.DefaultParams(model), opts)
 		p, ok := providers.New(key, apiKey, params)
 		if !ok {
 			return nil, fmt.Errorf("unknown provider %q", key)
 		}
 		return p, nil
 	}
+}
+
+// applyOptions overlays the caller's per-request sampling parameters on top of
+// the provider defaults. Options the caller left unset keep their default.
+func applyOptions(params provparams.Params, opts chat.Options) provparams.Params {
+	if opts.Temperature != nil {
+		params.Temperature = *opts.Temperature
+	}
+	if opts.TopP != nil {
+		params.TopP = *opts.TopP
+	}
+	if opts.MaxTokens != nil {
+		params.MaxCompletionTokens = *opts.MaxTokens
+	}
+	if opts.Stop != nil {
+		params.Stop = opts.Stop
+	}
+	return params
 }
 
 // providerAPIKey returns the API key for the given provider key, reading from

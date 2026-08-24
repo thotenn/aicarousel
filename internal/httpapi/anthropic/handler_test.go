@@ -19,7 +19,7 @@ type stubRouter struct {
 	err    error
 }
 
-func (s *stubRouter) Handle(_ context.Context, _ []chat.ChatMessage) (<-chan chat.StreamChunk, error) {
+func (s *stubRouter) Handle(_ context.Context, _ []chat.ChatMessage, _ chat.Options) (<-chan chat.StreamChunk, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -89,12 +89,12 @@ func TestMessages_NonStreaming_Default(t *testing.T) {
 		t.Errorf("Content-Type: %q", ct)
 	}
 	var resp struct {
-		ID          string `json:"id"`
-		Type        string `json:"type"`
-		Role        string `json:"role"`
-		Model       string `json:"model"`
-		StopReason  string `json:"stop_reason"`
-		Content []struct {
+		ID         string `json:"id"`
+		Type       string `json:"type"`
+		Role       string `json:"role"`
+		Model      string `json:"model"`
+		StopReason string `json:"stop_reason"`
+		Content    []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
@@ -222,10 +222,12 @@ func TestCountTokens_Basic(t *testing.T) {
 func TestCountTokens_WithSystem(t *testing.T) {
 	h := New(okRouter())
 	w := doPost(t, h, "/v1/messages/count_tokens", map[string]any{
-		"system":   "abcd",     // 4 chars = 1 token
+		"system":   "abcd",                                                   // 4 chars = 1 token
 		"messages": []map[string]string{{"role": "user", "content": "abcd"}}, // 4 chars = 1 token
 	})
-	var resp struct{ InputTokens int `json:"input_tokens"` }
+	var resp struct {
+		InputTokens int `json:"input_tokens"`
+	}
 	json.NewDecoder(w.Body).Decode(&resp) //nolint:errcheck
 	if resp.InputTokens != 2 {
 		t.Errorf("input_tokens: got %d, want 2", resp.InputTokens)
@@ -240,7 +242,9 @@ func TestCountTokens_EmptyMessages(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status: %d", w.Code)
 	}
-	var resp struct{ InputTokens int `json:"input_tokens"` }
+	var resp struct {
+		InputTokens int `json:"input_tokens"`
+	}
 	json.NewDecoder(w.Body).Decode(&resp) //nolint:errcheck
 	if resp.InputTokens != 0 {
 		t.Errorf("input_tokens: got %d, want 0", resp.InputTokens)
@@ -272,18 +276,53 @@ func assertAnthropicError(t *testing.T, body []byte, wantErrType string) {
 	}
 }
 
-// captureStub records the messages passed to Handle.
+// captureStub records the messages and options passed to Handle.
 type captureStub struct {
-	chunks   []string
-	captured *[]chat.ChatMessage
+	chunks       []string
+	captured     *[]chat.ChatMessage
+	capturedOpts *chat.Options
 }
 
-func (c *captureStub) Handle(_ context.Context, msgs []chat.ChatMessage) (<-chan chat.StreamChunk, error) {
+func (c *captureStub) Handle(_ context.Context, msgs []chat.ChatMessage, opts chat.Options) (<-chan chat.StreamChunk, error) {
 	*c.captured = append(*c.captured, msgs...)
+	if c.capturedOpts != nil {
+		*c.capturedOpts = opts
+	}
 	ch := make(chan chat.StreamChunk, len(c.chunks))
 	for _, t := range c.chunks {
 		ch <- chat.StreamChunk{Text: t}
 	}
 	close(ch)
 	return ch, nil
+}
+
+// TestMessages_ForwardsSamplingParams verifies the caller's params reach the
+// router. Anthropic requires max_tokens, so it is always forwarded.
+func TestMessages_ForwardsSamplingParams(t *testing.T) {
+	var gotMsgs []chat.ChatMessage
+	var gotOpts chat.Options
+	captureRouter := &captureStub{
+		chunks:       []string{"ok"},
+		captured:     &gotMsgs,
+		capturedOpts: &gotOpts,
+	}
+	h := New(captureRouter)
+
+	doPost(t, h, "/v1/messages", map[string]any{
+		"model":       "claude",
+		"max_tokens":  500,
+		"temperature": 0.2,
+		"top_p":       0.5,
+		"messages":    []map[string]string{{"role": "user", "content": "hi"}},
+	})
+
+	if gotOpts.MaxTokens == nil || *gotOpts.MaxTokens != 500 {
+		t.Errorf("max_tokens = %v, want 500", gotOpts.MaxTokens)
+	}
+	if gotOpts.Temperature == nil || *gotOpts.Temperature != 0.2 {
+		t.Errorf("temperature = %v, want 0.2", gotOpts.Temperature)
+	}
+	if gotOpts.TopP == nil || *gotOpts.TopP != 0.5 {
+		t.Errorf("top_p = %v, want 0.5", gotOpts.TopP)
+	}
 }

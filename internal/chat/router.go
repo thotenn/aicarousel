@@ -42,17 +42,18 @@ type Router struct {
 	rr            roundRobin
 	timeout       time.Duration
 	listActive    func(ctx context.Context) ([]ActiveProvider, error)
-	buildProvider func(key, model string) (Provider, error)
+	buildProvider func(key, model string, opts Options) (Provider, error)
 }
 
 // New creates a Router.
 //   - timeout: how long to wait for the first chunk from a provider (probe timeout).
 //   - listActive: returns the priority-ordered list of currently enabled providers.
-//   - buildProvider: constructs a Provider instance bound to the given key + model.
+//   - buildProvider: constructs a Provider instance bound to the given key + model,
+//     with the caller's per-request options applied over the provider defaults.
 func New(
 	timeout time.Duration,
 	listActive func(ctx context.Context) ([]ActiveProvider, error),
-	buildProvider func(key, model string) (Provider, error),
+	buildProvider func(key, model string, opts Options) (Provider, error),
 ) *Router {
 	return &Router{
 		timeout:       timeout,
@@ -65,7 +66,7 @@ func New(
 // with intra-provider model fallback. It returns a buffered stream channel on
 // success; the channel is closed when the stream ends. Errors are only returned
 // when no provider could start streaming.
-func (r *Router) Handle(ctx context.Context, msgs []ChatMessage) (<-chan StreamChunk, error) {
+func (r *Router) Handle(ctx context.Context, msgs []ChatMessage, opts Options) (<-chan StreamChunk, error) {
 	providers, err := r.listActive(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list active providers: %w", err)
@@ -84,7 +85,7 @@ func (r *Router) Handle(ctx context.Context, msgs []ChatMessage) (<-chan StreamC
 
 		for _, model := range buildModelList(ap) {
 			attempt++
-			p, buildErr := r.buildProvider(ap.Key, model)
+			p, buildErr := r.buildProvider(ap.Key, model, opts)
 			if buildErr != nil {
 				slog.WarnContext(ctx, "build provider failed",
 					"provider", ap.Key, "model", model,
@@ -138,7 +139,11 @@ func (r *Router) tryProvider(reqCtx context.Context, p Provider, msgs []ChatMess
 	// providerCtx: drives the actual provider goroutine — no timeout.
 	providerCtx, providerCancel := context.WithCancel(reqCtx)
 
-	ch, err := p.Chat(providerCtx, msgs)
+	// Adapt here rather than in Handle: the target model is only known once a
+	// provider has been picked, and fallback may land on a different one.
+	adapted := AdaptMessagesForModel(msgs, p.Model())
+
+	ch, err := p.Chat(providerCtx, adapted)
 	if err != nil {
 		providerCancel()
 		return nil, fmt.Errorf("%s/%s: %w", p.Key(), p.Model(), err)

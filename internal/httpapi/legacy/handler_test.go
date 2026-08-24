@@ -17,7 +17,7 @@ type stubRouter struct {
 	err    error
 }
 
-func (s *stubRouter) Handle(_ context.Context, _ []chat.ChatMessage) (<-chan chat.StreamChunk, error) {
+func (s *stubRouter) Handle(_ context.Context, _ []chat.ChatMessage, _ chat.Options) (<-chan chat.StreamChunk, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -114,7 +114,7 @@ func TestChat_StreamError_StopsGracefully(t *testing.T) {
 // errChunkRouter returns a channel that emits one error chunk then closes.
 type errChunkRouter struct{}
 
-func (e *errChunkRouter) Handle(_ context.Context, _ []chat.ChatMessage) (<-chan chat.StreamChunk, error) {
+func (e *errChunkRouter) Handle(_ context.Context, _ []chat.ChatMessage, _ chat.Options) (<-chan chat.StreamChunk, error) {
 	ch := make(chan chat.StreamChunk, 1)
 	ch <- chat.StreamChunk{Err: errors.New("provider died")}
 	close(ch)

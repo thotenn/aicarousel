@@ -15,11 +15,15 @@ import (
 // ── stub router ───────────────────────────────────────────────────────────────
 
 type stubRouter struct {
-	chunks []string
-	err    error
+	chunks  []string
+	err     error
+	gotOpts *chat.Options
 }
 
-func (s *stubRouter) Handle(_ context.Context, _ []chat.ChatMessage) (<-chan chat.StreamChunk, error) {
+func (s *stubRouter) Handle(_ context.Context, _ []chat.ChatMessage, opts chat.Options) (<-chan chat.StreamChunk, error) {
+	if s.gotOpts != nil {
+		*s.gotOpts = opts
+	}
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -158,8 +162,8 @@ func TestChatCompletions_StreamSSEHeaders(t *testing.T) {
 		"stream":   true,
 	})
 	headers := map[string]string{
-		"Content-Type":     "text/event-stream",
-		"Cache-Control":    "no-cache",
+		"Content-Type":      "text/event-stream",
+		"Cache-Control":     "no-cache",
 		"X-Accel-Buffering": "no",
 	}
 	for k, want := range headers {
@@ -175,7 +179,9 @@ func TestChatCompletions_ModelDefault(t *testing.T) {
 		"messages": []map[string]string{{"role": "user", "content": "hi"}},
 		"stream":   false,
 	})
-	var resp struct{ Model string `json:"model"` }
+	var resp struct {
+		Model string `json:"model"`
+	}
 	json.NewDecoder(w.Body).Decode(&resp) //nolint:errcheck
 	if resp.Model != "aicarousel" {
 		t.Errorf("model default: got %q", resp.Model)
@@ -256,5 +262,54 @@ func TestModelInfo_EmptyID_NotFound(t *testing.T) {
 	h.modelInfo(w2, r2) // r2.PathValue("id") == "" → 404
 	if w2.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", w2.Code)
+	}
+}
+
+// ── request sampling params ──────────────────────────────────────────────────
+
+// TestChatCompletions_ForwardsSamplingParams verifies the caller's params reach
+// the router instead of being silently dropped.
+func TestChatCompletions_ForwardsSamplingParams(t *testing.T) {
+	var got chat.Options
+	h := New(&stubRouter{chunks: []string{"hi"}, gotOpts: &got})
+
+	post(t, h, "/v1/chat/completions", map[string]any{
+		"model":       "aicarousel",
+		"messages":    []map[string]string{{"role": "user", "content": "hi"}},
+		"stream":      false,
+		"temperature": 0.2,
+		"top_p":       0.5,
+		"max_tokens":  500,
+		"stop":        "<end>",
+	})
+
+	if got.Temperature == nil || *got.Temperature != 0.2 {
+		t.Errorf("temperature = %v, want 0.2", got.Temperature)
+	}
+	if got.TopP == nil || *got.TopP != 0.5 {
+		t.Errorf("top_p = %v, want 0.5", got.TopP)
+	}
+	if got.MaxTokens == nil || *got.MaxTokens != 500 {
+		t.Errorf("max_tokens = %v, want 500", got.MaxTokens)
+	}
+	if got.Stop == nil || *got.Stop != "<end>" {
+		t.Errorf("stop = %v, want \"<end>\"", got.Stop)
+	}
+}
+
+// TestChatCompletions_OmittedParamsStayNil verifies unset params leave the
+// provider defaults untouched.
+func TestChatCompletions_OmittedParamsStayNil(t *testing.T) {
+	var got chat.Options
+	h := New(&stubRouter{chunks: []string{"hi"}, gotOpts: &got})
+
+	post(t, h, "/v1/chat/completions", map[string]any{
+		"model":    "aicarousel",
+		"messages": []map[string]string{{"role": "user", "content": "hi"}},
+		"stream":   false,
+	})
+
+	if got.Temperature != nil || got.TopP != nil || got.MaxTokens != nil || got.Stop != nil {
+		t.Errorf("omitted params must stay nil, got %+v", got)
 	}
 }

@@ -37,7 +37,7 @@ func TestRouter_RoundRobin_ConcurrentHandle(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ch, err := r.Handle(context.Background(), nil)
+			ch, err := r.Handle(context.Background(), nil, chat.Options{})
 			if err != nil {
 				errs <- fmt.Errorf("Handle: %w", err)
 				return
@@ -79,7 +79,7 @@ func TestRouter_RoundRobin_IndexStaysInRange(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ch, err := r.Handle(context.Background(), nil)
+			ch, err := r.Handle(context.Background(), nil, chat.Options{})
 			if err != nil {
 				return
 			}
@@ -116,7 +116,7 @@ func TestRouter_ConcurrentHandleWithFallback(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			ch, err := r.Handle(context.Background(), nil)
+			ch, err := r.Handle(context.Background(), nil, chat.Options{})
 			if err != nil {
 				errs <- fmt.Errorf("goroutine %d Handle: %w", n, err)
 				return
