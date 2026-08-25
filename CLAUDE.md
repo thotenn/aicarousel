@@ -143,6 +143,12 @@ stays at Ollama's 4096-token default, which truncates long system prompts from
 the front. The stream is NDJSON (one JSON object per line), and reasoning models'
 `thinking` field is deliberately dropped.
 
+`OLLAMA_KEEP_ALIVE` keeps the model resident between requests, which is what
+makes the prompt-prefix cache pay off: the system prompt is identical across
+conversations, so a warm model only evaluates the new turns. `keepAliveValue`
+picks the JSON type per Ollama's parser — a number is seconds (negative =
+forever), a string goes through `time.ParseDuration`, which rejects `"-1"`.
+
 ## Models Configuration
 
 `models.json` at repo root controls each provider's models and fallback behavior:
@@ -174,7 +180,7 @@ Copy `.env.template` to `.env`:
 | `OLLAMA_ENABLED` | `true` to enable local Ollama |
 | `OLLAMA_BASE_URL` | Ollama URL (default: `http://localhost:11434`) |
 | `OLLAMA_NUM_CTX` | Ollama context window in tokens (default: `8192`) |
-| `OLLAMA_KEEP_ALIVE` | How long Ollama keeps the model in RAM (`30m`, `-1` forever) |
+| `OLLAMA_KEEP_ALIVE` | How long Ollama keeps the model in RAM: duration (`30m`), seconds (`3600`), `0` (unload now), `-1` (until the service stops). Default: 5 min |
 | `MODELS_WITHOUT_SYSTEM_ROLE` | Models whose template has no `system` role (default: `gemma`) |
 | `PORT` | Listen port (default: `7123`) |
 | `DB_PATH` | SQLite path (default: `data/aicarousel.db`) |

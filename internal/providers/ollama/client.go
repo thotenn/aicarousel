@@ -18,6 +18,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/thotenn/aicarousel/internal/chat"
 	"github.com/thotenn/aicarousel/internal/config"
@@ -82,9 +84,10 @@ type reqBody struct {
 	Stream   bool               `json:"stream"`
 	Options  reqOptions         `json:"options"`
 	// KeepAlive controls how long the model stays resident in RAM after this
-	// request ("30m", "-1" forever). Loading a cold model is what makes the
-	// first request slow enough for the router probe to give up on it.
-	KeepAlive string `json:"keep_alive,omitempty"`
+	// request. Loading a cold model is what makes the first request slow enough
+	// for the router probe to give up on it. Raw JSON because Ollama reads the
+	// two types differently — see keepAliveValue.
+	KeepAlive json.RawMessage `json:"keep_alive,omitempty"`
 }
 
 type reqOptions struct {
@@ -120,7 +123,7 @@ func (c *client) Chat(ctx context.Context, msgs []chat.ChatMessage) (<-chan chat
 		Messages:  msgs,
 		Stream:    true,
 		Options:   opts,
-		KeepAlive: c.keepAlive,
+		KeepAlive: keepAliveValue(c.keepAlive),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ollama: marshal: %w", err)
@@ -159,6 +162,29 @@ func (c *client) Chat(ctx context.Context, msgs []chat.ChatMessage) (<-chan chat
 	}()
 
 	return out, nil
+}
+
+// keepAliveValue renders OLLAMA_KEEP_ALIVE the way Ollama's API reads it: a
+// JSON number is seconds and a negative one means "keep it loaded forever",
+// while a JSON string goes through time.ParseDuration ("30m", "1h").
+//
+// The two are not interchangeable: ParseDuration rejects "-1" — the exact value
+// Ollama's own docs give for forever — because it has no unit. So a bare
+// integer has to go over the wire as a number, and everything else as a string.
+// An empty value is omitted entirely, leaving Ollama's 5-minute default.
+func keepAliveValue(raw string) json.RawMessage {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if n, err := strconv.Atoi(raw); err == nil {
+		return json.RawMessage(strconv.Itoa(n))
+	}
+	quoted, err := json.Marshal(raw)
+	if err != nil {
+		return nil // unreachable for a string, but never send junk
+	}
+	return quoted
 }
 
 // forwardStream reads the NDJSON body line by line and forwards content deltas.

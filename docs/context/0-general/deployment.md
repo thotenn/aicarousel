@@ -19,7 +19,8 @@ ZAI_BASE_URL=                     # Optional. Default: https://api.z.ai/api/anth
 OLLAMA_ENABLED=true               # Set to true to enable
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_NUM_CTX=8192               # Optional. Context window in tokens
-OLLAMA_KEEP_ALIVE=30m             # Optional. Keeps the model in RAM between requests
+OLLAMA_KEEP_ALIVE=30m             # Optional. Keeps the model in RAM between
+                                  # requests. "-1" = until the service stops
 
 # Database
 DB_PATH=data/aicarousel.db        # Optional. Default: data/aicarousel.db

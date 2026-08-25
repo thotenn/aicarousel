@@ -277,20 +277,23 @@ func TestNew_Accessors(t *testing.T) {
 	}
 }
 
-// TestChat_KeepAlive verifies OLLAMA_KEEP_ALIVE reaches the native payload, and
-// that the field is omitted entirely when unset (Ollama then applies its own
-// default). Keeping the model resident is what stops a cold load from eating
-// the router's first-chunk budget on every request.
+// TestChat_KeepAlive verifies OLLAMA_KEEP_ALIVE reaches the native payload in
+// the type Ollama actually parses: a number for seconds (negative = forever), a
+// string for a Go duration. Sending "-1" as a string would fail ParseDuration on
+// Ollama's side and take the whole provider down.
 func TestChat_KeepAlive(t *testing.T) {
 	tests := []struct {
 		name      string
 		configVal string
 		wantSet   bool
-		want      string
+		want      any
 	}{
-		{"unset is omitted", "", false, ""},
-		{"forever", "-1", true, "-1"},
-		{"duration", "30m", true, "30m"},
+		{"unset is omitted", "", false, nil},
+		{"forever goes as a number", "-1", true, float64(-1)},
+		{"seconds go as a number", "3600", true, float64(3600)},
+		{"zero unloads immediately", "0", true, float64(0)},
+		{"duration goes as a string", "30m", true, "30m"},
+		{"whitespace is trimmed", "  30m  ", true, "30m"},
 	}
 
 	for _, tt := range tests {
@@ -316,7 +319,7 @@ func TestChat_KeepAlive(t *testing.T) {
 				t.Fatalf("keep_alive present = %v, want %v", ok, tt.wantSet)
 			}
 			if tt.wantSet && got != tt.want {
-				t.Errorf("keep_alive = %v, want %q", got, tt.want)
+				t.Errorf("keep_alive = %#v, want %#v", got, tt.want)
 			}
 		})
 	}
