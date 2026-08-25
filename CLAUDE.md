@@ -98,6 +98,7 @@ models.json               # Provider model config (default, fallback, list)
 2. Handler decodes request, maps to `[]chat.ChatMessage` plus a `chat.Options`
    carrying the caller's sampling params (`temperature`, `top_p`, `max_tokens`, `stop`)
 3. `chat.Router.Handle()` picks next provider (round-robin), probes with first-chunk timeout
+   (the probe covers the dial too — see below)
 4. Before each attempt, `chat.AdaptMessagesForModel()` reshapes the messages for
    the chosen model's chat template (see below)
 5. On failure: intra-provider model fallback (if enabled), then cross-provider fallback
@@ -113,6 +114,19 @@ up quoting or commenting on it. For models matching `MODELS_WITHOUT_SYSTEM_ROLE`
 behind explicit delimiters. It runs in `tryProvider`, not `Handle`, because the
 target model is only known once a provider has been picked and fallback may land
 on a different one.
+
+### Probe budget and cancelled requests
+
+The first-chunk probe in `chat.tryProvider` covers `p.Chat()` as well as the wait
+for the first chunk. `p.Chat()` blocks until the upstream returns response
+headers, and a local Ollama loading a cold model can sit there for a minute —
+outside the probe, that made the router wait indefinitely while the caller timed
+out. Per-provider budgets come from `FIRST_CHUNK_TIMEOUT_MS_<PROVIDER>` and are
+wired in through `chat.WithProviderTimeouts`.
+
+Once the caller's context is cancelled, `Handle` stops the carousel instead of
+dialling every remaining provider with a dead context — those attempts all fail
+instantly with `context canceled` and read like a fleet-wide outage in the log.
 
 ### Sampling parameters
 
@@ -160,11 +174,13 @@ Copy `.env.template` to `.env`:
 | `OLLAMA_ENABLED` | `true` to enable local Ollama |
 | `OLLAMA_BASE_URL` | Ollama URL (default: `http://localhost:11434`) |
 | `OLLAMA_NUM_CTX` | Ollama context window in tokens (default: `8192`) |
+| `OLLAMA_KEEP_ALIVE` | How long Ollama keeps the model in RAM (`30m`, `-1` forever) |
 | `MODELS_WITHOUT_SYSTEM_ROLE` | Models whose template has no `system` role (default: `gemma`) |
 | `PORT` | Listen port (default: `7123`) |
 | `DB_PATH` | SQLite path (default: `data/aicarousel.db`) |
 | `MODELS_CONFIG` | JSON override for `models.json` |
-| `FIRST_CHUNK_TIMEOUT_MS` | Provider probe timeout ms (default: `3000`) |
+| `FIRST_CHUNK_TIMEOUT_MS` | Provider probe timeout ms, dial included (default: `3000`) |
+| `FIRST_CHUNK_TIMEOUT_MS_<PROVIDER>` | Per-provider probe timeout override (e.g. `FIRST_CHUNK_TIMEOUT_MS_OLLAMA=30000`) |
 
 ## Testing
 

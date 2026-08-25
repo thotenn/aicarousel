@@ -29,6 +29,11 @@ type Config struct {
 	// Ollama (local LLM — no API key, gated by OLLAMA_ENABLED=true)
 	OllamaEnabled bool
 	OllamaBaseURL string
+	// OllamaKeepAlive is how long Ollama keeps the model resident in RAM after
+	// a request ("30m", "-1" for forever, "0" to unload immediately). Loading a
+	// cold model is the bulk of the time-to-first-token on a small box, so a
+	// warm model is what keeps Ollama inside the router's probe budget.
+	OllamaKeepAlive string
 	// OllamaNumCtx is the context window in tokens. Ollama's own default is
 	// 4096 (2048 on older installs) and it truncates from the front, which is
 	// where the system prompt sits.
@@ -48,6 +53,10 @@ type Config struct {
 
 	// Streaming
 	FirstChunkTimeoutMs int // default 3000
+	// FirstChunkTimeoutMsByProvider overrides FirstChunkTimeoutMs per provider,
+	// read from FIRST_CHUNK_TIMEOUT_MS_<PROVIDER> (e.g.
+	// FIRST_CHUNK_TIMEOUT_MS_OLLAMA=30000). Keys are lowercased provider keys.
+	FirstChunkTimeoutMsByProvider map[string]int
 }
 
 // Cfg is the process-wide configuration instance, populated by Load.
@@ -80,12 +89,15 @@ func Load(envPath string) {
 		OllamaEnabled:    strings.EqualFold(getEnv("OLLAMA_ENABLED", "false"), "true"),
 		OllamaBaseURL:    getEnv("OLLAMA_BASE_URL", "http://localhost:11434"),
 		OllamaNumCtx:     getEnvInt("OLLAMA_NUM_CTX", 8192),
+		OllamaKeepAlive:  os.Getenv("OLLAMA_KEEP_ALIVE"),
 
 		ModelsWithoutSystemRole: getEnvList("MODELS_WITHOUT_SYSTEM_ROLE"),
 		ModelsConfigJSON:        os.Getenv("MODELS_CONFIG"),
 		LogFormat:               getEnv("LOG_FORMAT", "text"),
 		LogLevel:                getEnv("LOG_LEVEL", "info"),
 		FirstChunkTimeoutMs:     getEnvInt("FIRST_CHUNK_TIMEOUT_MS", 3000),
+
+		FirstChunkTimeoutMsByProvider: firstChunkTimeoutOverrides(),
 	}
 }
 
@@ -110,6 +122,33 @@ func getEnvList(key string) []string {
 		if v := strings.ToLower(strings.TrimSpace(part)); v != "" {
 			out = append(out, v)
 		}
+	}
+	return out
+}
+
+// firstChunkTimeoutPrefix is the env prefix for per-provider probe timeouts.
+const firstChunkTimeoutPrefix = "FIRST_CHUNK_TIMEOUT_MS_"
+
+// firstChunkTimeoutOverrides collects every FIRST_CHUNK_TIMEOUT_MS_<PROVIDER>
+// variable into a map keyed by the lowercased provider key. Values that are not
+// positive integers are ignored, so a typo falls back to the global default
+// instead of disabling the probe.
+func firstChunkTimeoutOverrides() map[string]int {
+	out := map[string]int{}
+	for _, kv := range os.Environ() {
+		name, val, ok := strings.Cut(kv, "=")
+		if !ok || !strings.HasPrefix(name, firstChunkTimeoutPrefix) {
+			continue
+		}
+		key := strings.ToLower(strings.TrimPrefix(name, firstChunkTimeoutPrefix))
+		if key == "" {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(val))
+		if err != nil || n <= 0 {
+			continue
+		}
+		out[key] = n
 	}
 	return out
 }

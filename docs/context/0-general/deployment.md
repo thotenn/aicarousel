@@ -18,6 +18,8 @@ ZAI_BASE_URL=                     # Optional. Default: https://api.z.ai/api/anth
 # Ollama (local models)
 OLLAMA_ENABLED=true               # Set to true to enable
 OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_NUM_CTX=8192               # Optional. Context window in tokens
+OLLAMA_KEEP_ALIVE=30m             # Optional. Keeps the model in RAM between requests
 
 # Database
 DB_PATH=data/aicarousel.db        # Optional. Default: data/aicarousel.db
@@ -26,7 +28,9 @@ DB_PATH=data/aicarousel.db        # Optional. Default: data/aicarousel.db
 MODELS_CONFIG=                    # JSON string, optional
 
 # Timeouts and behavior
-FIRST_CHUNK_TIMEOUT_MS=3000       # Provider probe timeout in ms
+FIRST_CHUNK_TIMEOUT_MS=3000       # Provider probe timeout in ms (dial included)
+FIRST_CHUNK_TIMEOUT_MS_OLLAMA=30000  # Optional. Per-provider override; a local
+                                     # model may need to load before answering
 
 # Logging
 LOG_LEVEL=info                    # debug | info | warn | error

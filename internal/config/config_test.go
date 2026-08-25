@@ -301,3 +301,39 @@ func TestLoad_ModelsWithoutSystemRole(t *testing.T) {
 		}
 	})
 }
+
+func TestLoad_FirstChunkTimeoutPerProvider(t *testing.T) {
+	saveCfg(t)
+	t.Setenv("FIRST_CHUNK_TIMEOUT_MS_OLLAMA", "45000")
+	t.Setenv("FIRST_CHUNK_TIMEOUT_MS_GROQ", "not-a-number")
+	t.Setenv("FIRST_CHUNK_TIMEOUT_MS_ZAI", "0")
+
+	Load(noEnvFile(t))
+
+	if got := Cfg.FirstChunkTimeoutMsByProvider["ollama"]; got != 45000 {
+		t.Errorf("ollama override = %d, want 45000", got)
+	}
+	// A typo or a non-positive value must fall back to the global default
+	// rather than disabling the probe for that provider.
+	if _, ok := Cfg.FirstChunkTimeoutMsByProvider["groq"]; ok {
+		t.Error("invalid value should not produce an override")
+	}
+	if _, ok := Cfg.FirstChunkTimeoutMsByProvider["zai"]; ok {
+		t.Error("zero value should not produce an override")
+	}
+}
+
+func TestLoad_OllamaKeepAlive(t *testing.T) {
+	saveCfg(t)
+	unsetenv(t, "OLLAMA_KEEP_ALIVE")
+	Load(noEnvFile(t))
+	if Cfg.OllamaKeepAlive != "" {
+		t.Errorf("OllamaKeepAlive = %q, want empty when unset", Cfg.OllamaKeepAlive)
+	}
+
+	t.Setenv("OLLAMA_KEEP_ALIVE", "30m")
+	Load(noEnvFile(t))
+	if Cfg.OllamaKeepAlive != "30m" {
+		t.Errorf("OllamaKeepAlive = %q, want %q", Cfg.OllamaKeepAlive, "30m")
+	}
+}

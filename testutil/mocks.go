@@ -120,3 +120,46 @@ func (p *SlowProvider) Chat(ctx context.Context, _ []chat.ChatMessage) (<-chan c
 	}()
 	return ch, nil
 }
+
+// ─── SlowDialProvider ────────────────────────────────────────────────────────
+
+// SlowDialProvider blocks inside Chat itself for DialDelay before returning a
+// channel — the shape of a real HTTP provider whose POST hangs until the
+// upstream sends response headers (Ollama loading a cold model, for instance).
+// It is the case a first-chunk-only probe cannot see.
+type SlowDialProvider struct {
+	ProviderKey   string
+	ProviderModel string
+	DialDelay     time.Duration
+	Chunks        []string
+	// Done is closed when Chat returns. If nil it is ignored.
+	Done chan struct{}
+}
+
+func (p *SlowDialProvider) Name() string  { return p.ProviderKey }
+func (p *SlowDialProvider) Key() string   { return p.ProviderKey }
+func (p *SlowDialProvider) Model() string { return p.ProviderModel }
+
+func (p *SlowDialProvider) Chat(ctx context.Context, _ []chat.ChatMessage) (<-chan chat.StreamChunk, error) {
+	if p.Done != nil {
+		defer close(p.Done)
+	}
+	select {
+	case <-time.After(p.DialDelay):
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	ch := make(chan chat.StreamChunk, 10)
+	go func() {
+		defer close(ch)
+		for _, text := range p.Chunks {
+			select {
+			case ch <- chat.StreamChunk{Text: text}:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return ch, nil
+}

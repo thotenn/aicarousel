@@ -37,6 +37,7 @@ type client struct {
 	model      string
 	params     provparams.Params
 	numCtx     int
+	keepAlive  string
 	url        string
 	httpClient *http.Client
 }
@@ -63,6 +64,7 @@ func newClient(url string, params provparams.Params, h *http.Client) *client {
 		model:      params.Model,
 		params:     params,
 		numCtx:     numCtx,
+		keepAlive:  config.Cfg.OllamaKeepAlive,
 		url:        url,
 		httpClient: h,
 	}
@@ -79,6 +81,10 @@ type reqBody struct {
 	Messages []chat.ChatMessage `json:"messages"`
 	Stream   bool               `json:"stream"`
 	Options  reqOptions         `json:"options"`
+	// KeepAlive controls how long the model stays resident in RAM after this
+	// request ("30m", "-1" forever). Loading a cold model is what makes the
+	// first request slow enough for the router probe to give up on it.
+	KeepAlive string `json:"keep_alive,omitempty"`
 }
 
 type reqOptions struct {
@@ -110,10 +116,11 @@ func (c *client) Chat(ctx context.Context, msgs []chat.ChatMessage) (<-chan chat
 	}
 
 	body, err := json.Marshal(reqBody{
-		Model:    c.model,
-		Messages: msgs,
-		Stream:   true,
-		Options:  opts,
+		Model:     c.model,
+		Messages:  msgs,
+		Stream:    true,
+		Options:   opts,
+		KeepAlive: c.keepAlive,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ollama: marshal: %w", err)

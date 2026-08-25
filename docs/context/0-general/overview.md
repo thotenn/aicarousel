@@ -110,6 +110,20 @@ To detect failures quickly, the router uses a timeout (`FIRST_CHUNK_TIMEOUT_MS`,
 that cancels the request if the provider does not emit its first response chunk within that time.
 This prevents a slow provider from blocking the system indefinitely.
 
+The budget covers the dial as well: `Provider.Chat()` blocks until the upstream returns response
+headers, and a local backend loading a cold model can stay there far longer than the probe window.
+
+Providers with legitimately slow starts get their own budget via
+`FIRST_CHUNK_TIMEOUT_MS_<PROVIDER>` (e.g. `FIRST_CHUNK_TIMEOUT_MS_OLLAMA=30000`). Keep every
+budget below the calling client's own timeout: if the caller gives up first, the request context
+dies and no provider can answer it.
+
+### Cancelled requests
+
+If the caller disconnects mid-probe, the router aborts the carousel instead of trying the
+remaining providers — a dead context makes every one of them fail instantly, which used to fill
+the log with one "provider failed" line per provider and hide the single real cause.
+
 ## Request lifecycle
 
 ```
@@ -119,7 +133,8 @@ This prevents a slow provider from blocking the system indefinitely.
 4. Router probes the provider with timeout
 5. If provider responds: chunk stream → formatter → SSE to client
 6. If fails: tries next model or provider (see fallback above)
-7. If all fail: returns 503 "All AI services failed"
+7. If the caller is gone: aborts immediately, no further providers are tried
+8. If all fail: returns 503 "All AI services failed"
 ```
 
 ## Models configuration

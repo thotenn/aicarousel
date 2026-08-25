@@ -276,3 +276,48 @@ func TestNew_Accessors(t *testing.T) {
 		t.Error("Key() is empty")
 	}
 }
+
+// TestChat_KeepAlive verifies OLLAMA_KEEP_ALIVE reaches the native payload, and
+// that the field is omitted entirely when unset (Ollama then applies its own
+// default). Keeping the model resident is what stops a cold load from eating
+// the router's first-chunk budget on every request.
+func TestChat_KeepAlive(t *testing.T) {
+	tests := []struct {
+		name      string
+		configVal string
+		wantSet   bool
+		want      string
+	}{
+		{"unset is omitted", "", false, ""},
+		{"forever", "-1", true, "-1"},
+		{"duration", "30m", true, "30m"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := config.Cfg.OllamaKeepAlive
+			config.Cfg.OllamaKeepAlive = tt.configVal
+			defer func() { config.Cfg.OllamaKeepAlive = original }()
+
+			var body map[string]any
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+				fmt.Fprint(w, ndjsonDone)             //nolint:errcheck
+			}))
+			defer srv.Close()
+
+			c := newClient(srv.URL+"/api/chat", sampleParams(), &http.Client{})
+			ch, _ := c.Chat(context.Background(), nil)
+			for range ch {
+			}
+
+			got, ok := body["keep_alive"]
+			if ok != tt.wantSet {
+				t.Fatalf("keep_alive present = %v, want %v", ok, tt.wantSet)
+			}
+			if tt.wantSet && got != tt.want {
+				t.Errorf("keep_alive = %v, want %q", got, tt.want)
+			}
+		})
+	}
+}

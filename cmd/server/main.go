@@ -64,7 +64,8 @@ func main() {
 	}
 
 	timeout := time.Duration(config.Cfg.FirstChunkTimeoutMs) * time.Millisecond
-	router := chat.New(timeout, buildListActive(provRepo), buildProviderFn())
+	router := chat.New(timeout, buildListActive(provRepo), buildProviderFn(),
+		chat.WithProviderTimeouts(providerTimeouts()))
 
 	mux := http.NewServeMux()
 	healthhandler.Register(mux)
@@ -80,6 +81,17 @@ func main() {
 		slog.Error("server error", "err", err)
 		os.Exit(1)
 	}
+}
+
+// providerTimeouts converts the FIRST_CHUNK_TIMEOUT_MS_<PROVIDER> overrides
+// into durations for the router. A local Ollama needs a much larger budget than
+// a hosted API: it may have to load the model into RAM before the first token.
+func providerTimeouts() map[string]time.Duration {
+	out := make(map[string]time.Duration, len(config.Cfg.FirstChunkTimeoutMsByProvider))
+	for key, ms := range config.Cfg.FirstChunkTimeoutMsByProvider {
+		out[key] = time.Duration(ms) * time.Millisecond
+	}
+	return out
 }
 
 func runMigrate() {

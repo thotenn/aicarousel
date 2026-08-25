@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -527,5 +528,112 @@ func TestRouter_PassesOptionsToBuildProvider(t *testing.T) {
 
 	if gotOpts.Temperature == nil || *gotOpts.Temperature != 0.2 {
 		t.Errorf("temperature = %v, want 0.2", gotOpts.Temperature)
+	}
+}
+
+// ─── slow dial (the Ollama cold-start case) ──────────────────────────────────
+
+// TestRouter_SlowDial_FallsBackWithinProbeBudget covers a provider that hangs
+// inside Chat() itself — an HTTP POST waiting for response headers, which is
+// where a local Ollama sits while it loads the model. The probe budget has to
+// cover the dial too, otherwise the router waits indefinitely and the caller
+// times out first, taking every remaining provider down with it.
+func TestRouter_SlowDial_FallsBackWithinProbeBudget(t *testing.T) {
+	aps := []chat.ActiveProvider{
+		sampleAP("slow", "m1"),
+		sampleAP("fast", "m2"),
+	}
+	registry := map[string]chat.Provider{
+		"slow/m1": &testutil.SlowDialProvider{
+			ProviderKey: "slow", ProviderModel: "m1",
+			DialDelay: 5 * time.Second, Chunks: []string{"never"},
+		},
+		"fast/m2": &testutil.OkProvider{ProviderKey: "fast", ProviderModel: "m2", Chunks: []string{"from fast"}},
+	}
+	r := newRouter(50*time.Millisecond, aps, registry)
+
+	start := time.Now()
+	ch, err := r.Handle(context.Background(), nil, chat.Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got, _ := drain(ch)
+	if got != "from fast" {
+		t.Errorf("got %q, want %q", got, "from fast")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("fallback took %s — the dial is not inside the probe budget", elapsed)
+	}
+}
+
+// TestRouter_ProviderTimeoutOverride verifies a per-provider budget: the slow
+// provider gets enough time to answer instead of being skipped.
+func TestRouter_ProviderTimeoutOverride(t *testing.T) {
+	aps := []chat.ActiveProvider{
+		sampleAP("local", "m1"),
+		sampleAP("hosted", "m2"),
+	}
+	listActive := func(_ context.Context) ([]chat.ActiveProvider, error) { return aps, nil }
+	registry := map[string]chat.Provider{
+		"local/m1": &testutil.SlowDialProvider{
+			ProviderKey: "local", ProviderModel: "m1",
+			DialDelay: 120 * time.Millisecond, Chunks: []string{"from local"},
+		},
+		"hosted/m2": &testutil.OkProvider{ProviderKey: "hosted", ProviderModel: "m2", Chunks: []string{"from hosted"}},
+	}
+	buildP := func(key, model string, _ chat.Options) (chat.Provider, error) {
+		return registry[key+"/"+model], nil
+	}
+	r := chat.New(20*time.Millisecond, listActive, buildP,
+		chat.WithProviderTimeouts(map[string]time.Duration{"local": time.Second}))
+
+	ch, err := r.Handle(context.Background(), nil, chat.Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got, _ := drain(ch); got != "from local" {
+		t.Errorf("got %q, want %q — the per-provider timeout was not applied", got, "from local")
+	}
+}
+
+// ─── cancelled request must not burn the carousel ────────────────────────────
+
+// TestRouter_CancelledRequest_StopsFallback is the regression test for the
+// cascade: when the caller goes away mid-probe, every remaining provider used to
+// be dialled with a dead context and logged as "provider failed", which reads
+// like six broken providers instead of one disconnected client.
+func TestRouter_CancelledRequest_StopsFallback(t *testing.T) {
+	aps := []chat.ActiveProvider{
+		sampleAP("p1", "m1"),
+		sampleAP("p2", "m2"),
+		sampleAP("p3", "m3"),
+	}
+	listActive := func(_ context.Context) ([]chat.ActiveProvider, error) { return aps, nil }
+
+	var calls int32
+	buildP := func(key, model string, _ chat.Options) (chat.Provider, error) {
+		atomic.AddInt32(&calls, 1)
+		return &testutil.SlowDialProvider{
+			ProviderKey: key, ProviderModel: model,
+			DialDelay: time.Second, Chunks: []string{"never"},
+		}, nil
+	}
+	r := chat.New(5*time.Second, listActive, buildP)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		cancel()
+	}()
+
+	_, err := r.Handle(ctx, nil, chat.Options{})
+	if err == nil {
+		t.Fatal("expected an error for a cancelled request")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error should wrap context.Canceled, got %v", err)
+	}
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Errorf("router attempted %d providers after cancellation, want 1", n)
 	}
 }
