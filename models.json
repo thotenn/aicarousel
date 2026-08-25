@@ -25,13 +25,21 @@
     "models": ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemma-3-12b"]
   },
   "ollama": {
-    "default": "gemma3:1b",
-    "enableFallback": true,
-    "models": ["gemma3:1b", "llama3.2:latest"]
+    "default": "qwen2.5:3b",
+    "enableFallback": false,
+    "models": ["qwen2.5:3b"]
   },
   "zai": {
     "default": "glm-4.7",
     "enableFallback": true,
     "models": ["glm-4.7"]
+  },
+  "nvidia": {
+    "default": "nvidia/nemotron-3-content-safety",
+    "enableFallback": true,
+    "models": [
+      "nvidia/nemotron-3-content-safety",
+      "nvidia/llama-3.1-nemotron-safety-guard-8b-v3"
+    ]
   }
 }

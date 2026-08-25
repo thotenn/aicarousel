@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AICarousel models.json",
+  "description": "Provider model configuration for AICarousel. Each top-level key is a provider identifier.",
+  "type": "object",
+  "additionalProperties": {
+    "$ref": "#/definitions/ProviderConfig"
+  },
+  "definitions": {
+    "ProviderConfig": {
+      "type": "object",
+      "required": ["default", "enableFallback", "models"],
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The primary model to use. Must appear in the models array."
+        },
+        "enableFallback": {
+          "type": "boolean",
+          "description": "When true, tries other models in the list before moving to the next provider."
+        },
+        "models": {
+          "type": "array",
+          "description": "Ordered list of available models. First entry is tried first during fallback.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

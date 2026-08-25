@@ -1,4 +1,9 @@
-node_modules
-data
+bin/
+data/
 .env
-.git
+coverage.out
+coverage.html
+*.test
+*.db
+*.db-wal
+*.db-shm
