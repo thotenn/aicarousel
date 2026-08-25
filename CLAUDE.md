@@ -138,6 +138,21 @@ cancellation never counts as a failure — it says nothing about the provider �
 and if a pass finds every remaining candidate cooling down, `Handle` goes around
 again ignoring the breaker, because a slow provider beats no answer.
 
+### Reasoning models
+
+`internal/providers/nvidia` sends `chat_template_kwargs: {"thinking": false}` on
+every request (`NVIDIA_DISABLE_THINKING=false` opts out). Nemotron given a long
+persona prompt stops using the separate reasoning channel and writes its
+deliberation straight into `content` — ordinary assistant text with no marker to
+strip — and spends the whole `max_completion_tokens` budget on it, so the stream
+ends with `finish_reason: "length"` before the answer starts. Verified against
+NVIDIA Build: the flag fixes nemotron-3-nano, while llama-3.1-8b and gpt-oss-20b
+ignore it and answer normally. `reasoning_effort: "none"` does the same job but
+is rejected outright by those two, so it is not usable here.
+
+Adapters also drop `delta.reasoning_content`: when a model does use the separate
+channel, its chain of thought must never reach the caller.
+
 ### Sampling parameters
 
 `chat.Options` uses pointer fields so "unset" is distinguishable from a zero
@@ -187,6 +202,7 @@ Copy `.env.template` to `.env`:
 | `GEMINI_API_KEY` | Google Gemini API key |
 | `ZAI_API_KEY` | Z.ai API key |
 | `ZAI_BASE_URL` | Z.ai base URL (default: `https://api.z.ai/api/anthropic`) |
+| `NVIDIA_DISABLE_THINKING` | Turn off NVIDIA models' reasoning pass (default: `true`) |
 | `OLLAMA_ENABLED` | `true` to enable local Ollama |
 | `OLLAMA_BASE_URL` | Ollama URL (default: `http://localhost:11434`) |
 | `OLLAMA_NUM_CTX` | Ollama context window in tokens (default: `8192`) |

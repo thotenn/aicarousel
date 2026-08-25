@@ -50,6 +50,15 @@ func (c *client) Name() string  { return c.name }
 func (c *client) Key() string   { return c.key }
 func (c *client) Model() string { return c.model }
 
+// templateKwargs returns the chat template arguments for this request, or nil
+// to send none (the field is omitempty).
+func (c *client) templateKwargs() map[string]any {
+	if !config.Cfg.NvidiaDisableThinking {
+		return nil
+	}
+	return thinkingKwargs
+}
+
 type reqBody struct {
 	Model               string             `json:"model"`
 	Messages            []chat.ChatMessage `json:"messages"`
@@ -57,12 +66,38 @@ type reqBody struct {
 	MaxCompletionTokens int                `json:"max_completion_tokens"`
 	Temperature         float64            `json:"temperature"`
 	TopP                float64            `json:"top_p"`
+	// ChatTemplateKwargs reaches the model's chat template. It is how a
+	// reasoning model is told not to reason — see thinkingKwargs.
+	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
 }
+
+// thinkingKwargs disables the reasoning pass on models that support it.
+//
+// Nemotron thinks out loud: given a long persona prompt it stops using the
+// separate reasoning channel and writes its deliberation straight into
+// `content` ("The user wants the same phrase translated..."), which then goes
+// to the end user as if it were the answer. There is no marker to strip — it is
+// ordinary assistant text. Worse, with a small max_completion_tokens the budget
+// is spent deliberating and the stream ends (finish_reason "length") before the
+// real answer starts.
+//
+// `chat_template_kwargs.thinking=false` turns it off at the template. Verified
+// against NVIDIA Build: it fixes nemotron-3-nano, and llama-3.1-8b and
+// gpt-oss-20b ignore it and answer normally, so it is safe to send for every
+// model. Set NVIDIA_DISABLE_THINKING=false to send nothing at all.
+//
+// `reasoning_effort: "none"` does the same thing but is rejected outright by
+// both llama-3.1-8b and gpt-oss-20b, so it is not an option here.
+var thinkingKwargs = map[string]any{"thinking": false}
 
 type deltaChunk struct {
 	Choices []struct {
 		Delta struct {
 			Content string `json:"content"`
+			// ReasoningContent is deliberately unused: when the model does use
+			// the separate channel, its chain of thought must not reach the
+			// caller. Declared to document that dropping it is intentional.
+			ReasoningContent string `json:"reasoning_content"`
 		} `json:"delta"`
 	} `json:"choices"`
 }
@@ -75,6 +110,7 @@ func (c *client) Chat(ctx context.Context, msgs []chat.ChatMessage) (<-chan chat
 		MaxCompletionTokens: c.params.MaxCompletionTokens,
 		Temperature:         c.params.Temperature,
 		TopP:                c.params.TopP,
+		ChatTemplateKwargs:  c.templateKwargs(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("nvidia: marshal: %w", err)

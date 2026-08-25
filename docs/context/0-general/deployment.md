@@ -12,6 +12,7 @@ GROQ_API_KEY=
 CEREBRAS_API_KEY=
 OPENROUTER_API_KEY=
 GEMINI_API_KEY=
+NVIDIA_DISABLE_THINKING=true      # Optional. Turn off NVIDIA reasoning pass
 ZAI_API_KEY=
 ZAI_BASE_URL=                     # Optional. Default: https://api.z.ai/api/anthropic
 

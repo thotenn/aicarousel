@@ -337,3 +337,34 @@ func TestLoad_OllamaKeepAlive(t *testing.T) {
 		t.Errorf("OllamaKeepAlive = %q, want %q", Cfg.OllamaKeepAlive, "30m")
 	}
 }
+
+func TestLoad_NvidiaDisableThinking(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		set   bool
+		want  bool
+	}{
+		{"on by default", "", false, true},
+		{"explicit false lets the model think", "false", true, false},
+		{"explicit true", "true", true, true},
+		{"unrecognised value keeps the default", "maybe", true, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			saveCfg(t)
+			if tt.set {
+				t.Setenv("NVIDIA_DISABLE_THINKING", tt.value)
+			} else {
+				unsetenv(t, "NVIDIA_DISABLE_THINKING")
+			}
+
+			Load(noEnvFile(t))
+
+			if Cfg.NvidiaDisableThinking != tt.want {
+				t.Errorf("NvidiaDisableThinking = %v, want %v", Cfg.NvidiaDisableThinking, tt.want)
+			}
+		})
+	}
+}

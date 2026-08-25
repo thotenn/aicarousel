@@ -25,6 +25,11 @@ type Config struct {
 	ZaiAPIKey        string
 	ZaiBaseURL       string
 	NvidiaAPIKey     string
+	// NvidiaDisableThinking asks NVIDIA's models not to run their reasoning
+	// pass. A reasoning model given a persona prompt tends to write its
+	// deliberation into the answer itself, and to spend the whole token budget
+	// on it. Default true; set NVIDIA_DISABLE_THINKING=false to let them think.
+	NvidiaDisableThinking bool
 
 	// Ollama (local LLM — no API key, gated by OLLAMA_ENABLED=true)
 	OllamaEnabled bool
@@ -93,10 +98,13 @@ func Load(envPath string) {
 		ZaiAPIKey:        os.Getenv("ZAI_API_KEY"),
 		ZaiBaseURL:       getEnv("ZAI_BASE_URL", "https://api.z.ai/api/anthropic"),
 		NvidiaAPIKey:     os.Getenv("NVIDIA_API_KEY"),
-		OllamaEnabled:    strings.EqualFold(getEnv("OLLAMA_ENABLED", "false"), "true"),
-		OllamaBaseURL:    getEnv("OLLAMA_BASE_URL", "http://localhost:11434"),
-		OllamaNumCtx:     getEnvInt("OLLAMA_NUM_CTX", 8192),
-		OllamaKeepAlive:  os.Getenv("OLLAMA_KEEP_ALIVE"),
+
+		NvidiaDisableThinking: !strings.EqualFold(getEnv("NVIDIA_DISABLE_THINKING", "true"), "false"),
+
+		OllamaEnabled:   strings.EqualFold(getEnv("OLLAMA_ENABLED", "false"), "true"),
+		OllamaBaseURL:   getEnv("OLLAMA_BASE_URL", "http://localhost:11434"),
+		OllamaNumCtx:    getEnvInt("OLLAMA_NUM_CTX", 8192),
+		OllamaKeepAlive: os.Getenv("OLLAMA_KEEP_ALIVE"),
 
 		ModelsWithoutSystemRole: getEnvList("MODELS_WITHOUT_SYSTEM_ROLE"),
 		ModelsConfigJSON:        os.Getenv("MODELS_CONFIG"),

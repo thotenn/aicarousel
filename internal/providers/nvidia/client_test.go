@@ -2,6 +2,7 @@ package nvidia
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/thotenn/aicarousel/internal/chat"
+	"github.com/thotenn/aicarousel/internal/config"
 	"github.com/thotenn/aicarousel/internal/providers/provparams"
 	"github.com/thotenn/aicarousel/testutil"
 )
@@ -35,9 +37,9 @@ func collect(t *testing.T, ch <-chan chat.StreamChunk) (string, error) {
 func TestChat_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, sseChunk("hello"))   //nolint:errcheck
-		fmt.Fprint(w, sseChunk(" world"))  //nolint:errcheck
-		fmt.Fprint(w, "data: [DONE]\n\n")  //nolint:errcheck
+		fmt.Fprint(w, sseChunk("hello"))  //nolint:errcheck
+		fmt.Fprint(w, sseChunk(" world")) //nolint:errcheck
+		fmt.Fprint(w, "data: [DONE]\n\n") //nolint:errcheck
 	}))
 	defer srv.Close()
 
@@ -218,5 +220,84 @@ func TestNew_Accessors(t *testing.T) {
 	}
 	if a.Key() != "nvidia" {
 		t.Errorf("Key() = %q, want %q", a.Key(), "nvidia")
+	}
+}
+
+// TestChat_DisablesThinking verifies the request carries the chat template flag
+// that turns off the reasoning pass.
+//
+// Without it, nemotron given a long persona prompt writes its deliberation into
+// `content` — plain assistant text with no marker to strip — and burns the whole
+// token budget doing it, so the stream ends before the real answer starts.
+func TestChat_DisablesThinking(t *testing.T) {
+	tests := []struct {
+		name           string
+		disableEnabled bool
+		wantPresent    bool
+	}{
+		{"enabled by default", true, true},
+		{"NVIDIA_DISABLE_THINKING=false sends nothing", false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := config.Cfg.NvidiaDisableThinking
+			config.Cfg.NvidiaDisableThinking = tt.disableEnabled
+			defer func() { config.Cfg.NvidiaDisableThinking = original }()
+
+			var body map[string]any
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, "data: [DONE]\n\n") //nolint:errcheck
+			}))
+			defer srv.Close()
+
+			c := newClient(srv.URL, "k", sampleParams(), &http.Client{})
+			ch, err := c.Chat(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for range ch {
+			}
+
+			kwargs, ok := body["chat_template_kwargs"]
+			if ok != tt.wantPresent {
+				t.Fatalf("chat_template_kwargs present = %v, want %v", ok, tt.wantPresent)
+			}
+			if tt.wantPresent {
+				got, isMap := kwargs.(map[string]any)
+				if !isMap || got["thinking"] != false {
+					t.Errorf("chat_template_kwargs = %#v, want {\"thinking\": false}", kwargs)
+				}
+			}
+		})
+	}
+}
+
+// TestChat_DropsReasoningContent verifies the model's chain of thought never
+// reaches the caller when it does arrive on the separate channel.
+func TestChat_DropsReasoningContent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// How NVIDIA streams a reasoning model: 250 reasoning deltas, then the answer.
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"The user wants\"}}]}\n\n")   //nolint:errcheck
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\" me to translate\"}}]}\n\n") //nolint:errcheck
+		fmt.Fprint(w, sseChunk("Ha upéi, kape!"))                                                           //nolint:errcheck
+		fmt.Fprint(w, "data: [DONE]\n\n")                                                                   //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	c := newClient(srv.URL, "k", sampleParams(), &http.Client{})
+	ch, err := c.Chat(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, streamErr := collect(t, ch)
+	if streamErr != nil {
+		t.Fatal(streamErr)
+	}
+	if got != "Ha upéi, kape!" {
+		t.Errorf("got %q — the chain of thought leaked into the answer", got)
 	}
 }
