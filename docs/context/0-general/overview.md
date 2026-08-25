@@ -118,6 +118,14 @@ Providers with legitimately slow starts get their own budget via
 budget below the calling client's own timeout: if the caller gives up first, the request context
 dies and no provider can answer it.
 
+### Circuit breaker
+
+A provider/model that fails `PROVIDER_BREAKER_FAILURES` times in a row (default 3) is skipped
+for `PROVIDER_BREAKER_COOLDOWN_MS` (default 5 min). Losing the probe costs real time: without
+this, every request that lands on a dead provider's slot in the rotation waits out its whole
+probe budget first. If a pass finds every candidate cooling down, the router retries them
+ignoring the breaker — a slow answer beats no answer.
+
 ### Cancelled requests
 
 If the caller disconnects mid-probe, the router aborts the carousel instead of trying the
@@ -134,6 +142,7 @@ the log with one "provider failed" line per provider and hide the single real ca
 5. If provider responds: chunk stream → formatter → SSE to client
 6. If fails: tries next model or provider (see fallback above)
 7. If the caller is gone: aborts immediately, no further providers are tried
+   (a cancellation never counts against a provider's breaker)
 8. If all fail: returns 503 "All AI services failed"
 ```
 

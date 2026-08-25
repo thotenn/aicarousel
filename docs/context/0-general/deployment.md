@@ -32,6 +32,8 @@ MODELS_CONFIG=                    # JSON string, optional
 FIRST_CHUNK_TIMEOUT_MS=3000       # Provider probe timeout in ms (dial included)
 FIRST_CHUNK_TIMEOUT_MS_OLLAMA=30000  # Optional. Per-provider override; a local
                                      # model may need to load before answering
+PROVIDER_BREAKER_FAILURES=3          # Optional. Consecutive failures before cooldown
+PROVIDER_BREAKER_COOLDOWN_MS=300000  # Optional. How long a tripped provider is skipped
 
 # Logging
 LOG_LEVEL=info                    # debug | info | warn | error

@@ -43,6 +43,7 @@ type Router struct {
 	rr               roundRobin
 	timeout          time.Duration
 	providerTimeouts map[string]time.Duration
+	breaker          *breaker
 	listActive       func(ctx context.Context) ([]ActiveProvider, error)
 	buildProvider    func(key, model string, opts Options) (Provider, error)
 }
@@ -65,6 +66,16 @@ func WithProviderTimeouts(m map[string]time.Duration) Option {
 				r.providerTimeouts[k] = v
 			}
 		}
+	}
+}
+
+// WithCircuitBreaker skips a provider/model that failed `threshold` times in a
+// row for `cooldown`. Without it, a provider that reliably loses the probe still
+// costs every request that lands on its slot the full probe budget. Either
+// argument at zero disables the breaker.
+func WithCircuitBreaker(threshold int, cooldown time.Duration) Option {
+	return func(r *Router) {
+		r.breaker = newBreaker(threshold, cooldown)
 	}
 }
 
@@ -112,9 +123,57 @@ func (r *Router) Handle(ctx context.Context, msgs []ChatMessage, opts Options) (
 		return nil, fmt.Errorf("no active providers configured")
 	}
 
+	start := r.rr.Snapshot(len(providers))
+
+	ch, st, err := r.attemptAll(ctx, providers, start, msgs, opts, true)
+	if err != nil {
+		return nil, err
+	}
+	if ch != nil {
+		return ch, nil
+	}
+
+	// Everything that was left had tripped its breaker. A slow provider still
+	// beats no answer at all, so ignore the cooldowns and go around once more.
+	if st.skipped > 0 {
+		slog.InfoContext(ctx, "all remaining providers in cooldown, retrying without the breaker",
+			"skipped", st.skipped, "attempts", st.attempts)
+
+		ch, st2, err := r.attemptAll(ctx, providers, start, msgs, opts, false)
+		if err != nil {
+			return nil, err
+		}
+		if ch != nil {
+			return ch, nil
+		}
+		st.attempts += st2.attempts
+	}
+
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, fmt.Errorf("request cancelled after %d attempt(s): %w", st.attempts, ctxErr)
+	}
+	return nil, fmt.Errorf("all providers exhausted after %d attempt(s)", st.attempts)
+}
+
+// attemptState records what one pass over the rotation did.
+type attemptState struct {
+	attempts int
+	skipped  int
+}
+
+// attemptAll walks the rotation once. It returns a stream on the first provider
+// that answers, or a non-nil error only when the caller's context is gone —
+// every other failure just moves on to the next candidate.
+func (r *Router) attemptAll(
+	ctx context.Context,
+	providers []ActiveProvider,
+	start int,
+	msgs []ChatMessage,
+	opts Options,
+	respectBreaker bool,
+) (<-chan StreamChunk, attemptState, error) {
 	n := len(providers)
-	start := r.rr.Snapshot(n)
-	attempt := 0
+	var st attemptState
 
 	for i := 0; i < n; i++ {
 		idx := (start + i) % n
@@ -126,39 +185,59 @@ func (r *Router) Handle(ctx context.Context, msgs []ChatMessage, opts Options) (
 			// Stop here instead of burning the whole carousel on a dead request.
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				slog.InfoContext(ctx, "request cancelled, aborting fallback",
-					"after_attempts", attempt, "err", ctxErr)
-				return nil, fmt.Errorf("request cancelled after %d attempt(s): %w", attempt, ctxErr)
+					"after_attempts", st.attempts, "err", ctxErr)
+				return nil, st, fmt.Errorf("request cancelled after %d attempt(s): %w", st.attempts, ctxErr)
 			}
 
-			attempt++
+			id := ap.Key + "/" + model
+			if respectBreaker && r.breaker.isOpen(id) {
+				st.skipped++
+				slog.DebugContext(ctx, "provider in cooldown, skipping",
+					"provider", ap.Key, "model", model)
+				continue
+			}
+
+			st.attempts++
 			p, buildErr := r.buildProvider(ap.Key, model, opts)
 			if buildErr != nil {
 				slog.WarnContext(ctx, "build provider failed",
 					"provider", ap.Key, "model", model,
-					"attempt", attempt, "err", buildErr)
+					"attempt", st.attempts, "err", buildErr)
 				continue
 			}
 
 			ch, tryErr := r.tryProvider(ctx, p, msgs)
 			if tryErr != nil {
-				slog.WarnContext(ctx, "provider failed, trying next",
-					"provider", ap.Key, "model", model,
-					"attempt", attempt, "err", tryErr)
+				r.recordFailure(ctx, id, ap.Key, model, st.attempts, tryErr)
 				continue
 			}
 
 			// Success — advance round-robin so the next request picks the next provider.
+			r.breaker.succeed(id)
 			r.rr.Advance(idx, n)
 			slog.InfoContext(ctx, "provider chosen",
-				"provider", ap.Key, "model", model, "attempt", attempt)
-			return ch, nil
+				"provider", ap.Key, "model", model, "attempt", st.attempts)
+			return ch, st, nil
 		}
 	}
 
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, fmt.Errorf("request cancelled after %d attempt(s): %w", attempt, ctxErr)
+	return nil, st, nil
+}
+
+// recordFailure logs a failed attempt and feeds the breaker — except when the
+// caller cancelled, which is not the provider's fault and must not trip it.
+func (r *Router) recordFailure(ctx context.Context, id, key, model string, attempt int, err error) {
+	slog.WarnContext(ctx, "provider failed, trying next",
+		"provider", key, "model", model, "attempt", attempt, "err", err)
+
+	if IsCancelled(err) && ctx.Err() != nil {
+		return
 	}
-	return nil, fmt.Errorf("all providers exhausted after %d attempt(s)", attempt)
+
+	if until := r.breaker.fail(id); !until.IsZero() {
+		slog.WarnContext(ctx, "provider tripped the breaker, cooling down",
+			"provider", key, "model", model, "until", until.Format(time.RFC3339))
+	}
 }
 
 // buildModelList returns the ordered list of models to try for a provider.

@@ -128,6 +128,16 @@ Once the caller's context is cancelled, `Handle` stops the carousel instead of
 dialling every remaining provider with a dead context — those attempts all fail
 instantly with `context canceled` and read like a fleet-wide outage in the log.
 
+### Circuit breaker
+
+`internal/chat/breaker.go` skips a `provider/model` after
+`PROVIDER_BREAKER_FAILURES` consecutive failures for `PROVIDER_BREAKER_COOLDOWN_MS`.
+Losing the probe is not free: without this, every request landing on a dead
+provider's slot pays the full probe budget before falling through. A caller
+cancellation never counts as a failure — it says nothing about the provider —
+and if a pass finds every remaining candidate cooling down, `Handle` goes around
+again ignoring the breaker, because a slow provider beats no answer.
+
 ### Sampling parameters
 
 `chat.Options` uses pointer fields so "unset" is distinguishable from a zero
@@ -187,6 +197,8 @@ Copy `.env.template` to `.env`:
 | `MODELS_CONFIG` | JSON override for `models.json` |
 | `FIRST_CHUNK_TIMEOUT_MS` | Provider probe timeout ms, dial included (default: `3000`) |
 | `FIRST_CHUNK_TIMEOUT_MS_<PROVIDER>` | Per-provider probe timeout override (e.g. `FIRST_CHUNK_TIMEOUT_MS_OLLAMA=30000`) |
+| `PROVIDER_BREAKER_FAILURES` | Consecutive failures before a provider/model is skipped (default: `3`, `0` disables) |
+| `PROVIDER_BREAKER_COOLDOWN_MS` | How long a tripped provider/model is skipped (default: `300000`) |
 
 ## Testing
 

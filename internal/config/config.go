@@ -57,6 +57,13 @@ type Config struct {
 	// read from FIRST_CHUNK_TIMEOUT_MS_<PROVIDER> (e.g.
 	// FIRST_CHUNK_TIMEOUT_MS_OLLAMA=30000). Keys are lowercased provider keys.
 	FirstChunkTimeoutMsByProvider map[string]int
+
+	// Circuit breaker: a provider/model that fails BreakerFailures times in a
+	// row is skipped for BreakerCooldownMs, so a reliably failing provider stops
+	// charging every request that lands on its slot the whole probe budget.
+	// Either value at 0 disables it.
+	BreakerFailures   int
+	BreakerCooldownMs int
 }
 
 // Cfg is the process-wide configuration instance, populated by Load.
@@ -98,6 +105,9 @@ func Load(envPath string) {
 		FirstChunkTimeoutMs:     getEnvInt("FIRST_CHUNK_TIMEOUT_MS", 3000),
 
 		FirstChunkTimeoutMsByProvider: firstChunkTimeoutOverrides(),
+
+		BreakerFailures:   getEnvInt("PROVIDER_BREAKER_FAILURES", 3),
+		BreakerCooldownMs: getEnvInt("PROVIDER_BREAKER_COOLDOWN_MS", 300_000),
 	}
 }
 

@@ -65,7 +65,11 @@ func main() {
 
 	timeout := time.Duration(config.Cfg.FirstChunkTimeoutMs) * time.Millisecond
 	router := chat.New(timeout, buildListActive(provRepo), buildProviderFn(),
-		chat.WithProviderTimeouts(providerTimeouts()))
+		chat.WithProviderTimeouts(providerTimeouts()),
+		chat.WithCircuitBreaker(
+			config.Cfg.BreakerFailures,
+			time.Duration(config.Cfg.BreakerCooldownMs)*time.Millisecond,
+		))
 
 	mux := http.NewServeMux()
 	healthhandler.Register(mux)

@@ -637,3 +637,169 @@ func TestRouter_CancelledRequest_StopsFallback(t *testing.T) {
 		t.Errorf("router attempted %d providers after cancellation, want 1", n)
 	}
 }
+
+// ─── circuit breaker ─────────────────────────────────────────────────────────
+
+// TestRouter_Breaker_SkipsAfterConsecutiveFailures verifies a provider that
+// keeps losing the probe stops being dialled: otherwise every request landing on
+// its slot pays the full probe budget before falling through.
+func TestRouter_Breaker_SkipsAfterConsecutiveFailures(t *testing.T) {
+	aps := []chat.ActiveProvider{
+		sampleAP("bad", "m1"),
+		sampleAP("good", "m2"),
+	}
+	listActive := func(_ context.Context) ([]chat.ActiveProvider, error) { return aps, nil }
+
+	var badCalls int32
+	buildP := func(key, model string, _ chat.Options) (chat.Provider, error) {
+		if key == "bad" {
+			atomic.AddInt32(&badCalls, 1)
+			return &testutil.FailingProvider{
+				ProviderKey: key, ProviderModel: model, Err: errors.New("upstream 503"),
+			}, nil
+		}
+		return &testutil.OkProvider{ProviderKey: key, ProviderModel: model, Chunks: []string{"ok"}}, nil
+	}
+	r := chat.New(time.Second, listActive, buildP,
+		chat.WithCircuitBreaker(2, time.Minute))
+
+	// Round-robin only lands on "bad" every other request, so drive enough
+	// requests to trip it and then some.
+	for i := 0; i < 8; i++ {
+		ch, err := r.Handle(context.Background(), nil, chat.Options{})
+		if err != nil {
+			t.Fatalf("request %d: %v", i, err)
+		}
+		drain(ch)
+	}
+
+	if n := atomic.LoadInt32(&badCalls); n != 2 {
+		t.Errorf("failing provider dialled %d times, want 2 (the breaker threshold)", n)
+	}
+}
+
+// TestRouter_Breaker_ReopensAfterCooldown verifies the cooldown is a pause and
+// not a ban: once it elapses the provider gets a trial call.
+func TestRouter_Breaker_ReopensAfterCooldown(t *testing.T) {
+	aps := []chat.ActiveProvider{sampleAP("flaky", "m1"), sampleAP("good", "m2")}
+	listActive := func(_ context.Context) ([]chat.ActiveProvider, error) { return aps, nil }
+
+	var flakyCalls int32
+	buildP := func(key, model string, _ chat.Options) (chat.Provider, error) {
+		if key == "flaky" {
+			atomic.AddInt32(&flakyCalls, 1)
+			return &testutil.FailingProvider{
+				ProviderKey: key, ProviderModel: model, Err: errors.New("boom"),
+			}, nil
+		}
+		return &testutil.OkProvider{ProviderKey: key, ProviderModel: model, Chunks: []string{"ok"}}, nil
+	}
+	r := chat.New(time.Second, listActive, buildP,
+		chat.WithCircuitBreaker(1, 60*time.Millisecond))
+
+	for i := 0; i < 4; i++ {
+		ch, err := r.Handle(context.Background(), nil, chat.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		drain(ch)
+	}
+	tripped := atomic.LoadInt32(&flakyCalls)
+
+	time.Sleep(80 * time.Millisecond)
+
+	for i := 0; i < 2; i++ {
+		ch, err := r.Handle(context.Background(), nil, chat.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		drain(ch)
+	}
+
+	if got := atomic.LoadInt32(&flakyCalls); got <= tripped {
+		t.Errorf("provider was not retried after the cooldown (%d calls before, %d after)", tripped, got)
+	}
+}
+
+// TestRouter_Breaker_FallsOpenWhenEveryoneIsCoolingDown is the safety net: a
+// slow provider still beats returning nothing, so a rotation where every target
+// is in cooldown must be retried ignoring the breaker.
+func TestRouter_Breaker_FallsOpenWhenEveryoneIsCoolingDown(t *testing.T) {
+	aps := []chat.ActiveProvider{sampleAP("p1", "m1")}
+	listActive := func(_ context.Context) ([]chat.ActiveProvider, error) { return aps, nil }
+
+	var calls int32
+	buildP := func(key, model string, _ chat.Options) (chat.Provider, error) {
+		// Fails the first two times, then recovers.
+		if atomic.AddInt32(&calls, 1) <= 2 {
+			return &testutil.FailingProvider{
+				ProviderKey: key, ProviderModel: model, Err: errors.New("boom"),
+			}, nil
+		}
+		return &testutil.OkProvider{ProviderKey: key, ProviderModel: model, Chunks: []string{"recovered"}}, nil
+	}
+	r := chat.New(time.Second, listActive, buildP,
+		chat.WithCircuitBreaker(1, time.Hour))
+
+	// First request trips the breaker on the only provider there is.
+	if _, err := r.Handle(context.Background(), nil, chat.Options{}); err == nil {
+		t.Fatal("expected the first request to fail")
+	}
+
+	// Second request: the only candidate is cooling down, but the router must
+	// still try it rather than give up.
+	_, err := r.Handle(context.Background(), nil, chat.Options{})
+	if err == nil {
+		t.Fatal("expected the second request to fail too")
+	}
+
+	ch, err := r.Handle(context.Background(), nil, chat.Options{})
+	if err != nil {
+		t.Fatalf("third request should have gone through despite the cooldown: %v", err)
+	}
+	if got, _ := drain(ch); got != "recovered" {
+		t.Errorf("got %q, want %q", got, "recovered")
+	}
+}
+
+// TestRouter_Breaker_IgnoresCallerCancellation verifies a client disconnect does
+// not trip the breaker — it says nothing about the provider's health.
+func TestRouter_Breaker_IgnoresCallerCancellation(t *testing.T) {
+	aps := []chat.ActiveProvider{sampleAP("p1", "m1")}
+	listActive := func(_ context.Context) ([]chat.ActiveProvider, error) { return aps, nil }
+
+	slow := &testutil.SlowDialProvider{
+		ProviderKey: "p1", ProviderModel: "m1",
+		DialDelay: time.Second, Chunks: []string{"never"},
+	}
+	ok := &testutil.OkProvider{ProviderKey: "p1", ProviderModel: "m1", Chunks: []string{"ok"}}
+
+	useSlow := true
+	buildP := func(_, _ string, _ chat.Options) (chat.Provider, error) {
+		if useSlow {
+			return slow, nil
+		}
+		return ok, nil
+	}
+	r := chat.New(5*time.Second, listActive, buildP,
+		chat.WithCircuitBreaker(1, time.Hour))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	if _, err := r.Handle(ctx, nil, chat.Options{}); err == nil {
+		t.Fatal("expected a cancellation error")
+	}
+
+	// The provider is healthy; a cancelled request must not have banned it.
+	useSlow = false
+	ch, err := r.Handle(context.Background(), nil, chat.Options{})
+	if err != nil {
+		t.Fatalf("cancellation tripped the breaker: %v", err)
+	}
+	if got, _ := drain(ch); got != "ok" {
+		t.Errorf("got %q, want %q", got, "ok")
+	}
+}
